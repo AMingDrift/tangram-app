@@ -2,11 +2,6 @@ name: Create Portable Release
 
 on:
   workflow_dispatch:
-    inputs:
-      node_version:
-        description: "Node.js version to download (e.g., 22.20.0)"
-        required: true
-        default: "22.20.0"
 
 jobs:
   create-portable-release:
@@ -43,6 +38,12 @@ jobs:
         run: |
           unzip node-v22.20.0-win-x64.zip
           mv node-v22.20.0-win-x64 artifacts/nodejs
+
+      - name: Fix permissions for Node.js binaries
+        run: |
+          chmod +x artifacts/nodejs/node.exe
+          chmod +x artifacts/nodejs/npm
+          chmod +x artifacts/nodejs/npx
 
       - name: Install serve globally in portable Node.js
         run: |
