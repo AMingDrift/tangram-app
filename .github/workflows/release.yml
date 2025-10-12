@@ -59,13 +59,12 @@ jobs:
       - name: Package portable release
         run: |
           mv artifacts tangram-web-server
-          zip -r tangram-web-server.zip tangram-web-server
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tangram-web-server
-          path: tangram-web-server.zip
+          path: tangram-web-server
 
       # 如果此工作流由 Release 事件触发，则上传到 Release
       - name: Upload Release Asset
@@ -75,6 +74,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./tangram-web-server.zip
+          asset_path: ./tangram-web-server
           asset_name: tangram-web-server.zip
           asset_content_type: application/zip
