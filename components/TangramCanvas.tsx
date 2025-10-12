@@ -21,37 +21,30 @@ const GRID_CELL = 100;
 const SIDEBAR_WIDTH = 260;
 
 const mockTarget = [
-    // 1 大三角 - top big triangle (red)
     {
         id: 1,
         points: [-1, -1, 3, -1, 1, 1],
     },
-    // 2 大三角 - left big triangle (orange)
     {
         id: 2,
         points: [0, 0, 2, 2, 0, 4],
     },
-    // 3 小三角 - top-right small triangle (cyan)
     {
         id: 3,
         points: [4, 0, 4, 2, 3, 1],
     },
-    // 4 正方形(菱形) - diamond (green)
     {
         id: 4,
         points: [2, 2, 3, 1, 4, 2, 3, 3],
     },
-    // 5 小三角 - center small triangle (pink)
     {
         id: 5,
         points: [2, 2, 3, 3, 1, 3],
     },
-    // 6 平行四边形 - bottom-left parallelogram (purple)
     {
         id: 6,
         points: [1, 3, 3, 3, 2, 4, 0, 4],
     },
-    // 7 中三角 - bottom-right triangle (yellow)
     {
         id: 7,
         points: [4, 2, 4, 4, 2, 4],
@@ -340,11 +333,47 @@ export default function TangramCanvas() {
     const [showFireworks, setShowFireworks] = useState(false);
     const groupRefs = useRef<Record<number, any>>({});
 
-    const allPoints = mockTarget.flatMap(p => p.points);
-    const [offsetX, offsetY] = alignCenter(allPoints, { ...size, width: size.width - 300 });
-    const offsetTarget = mockTarget.map(p => ({
+    // composition creation area size (for new puzzles)
+
+    // problems state (可动态添加题目)
+    const initialProblemsList = [{ id: 1, title: '（默认）' }];
+
+    // mapping from problem id -> target polygons (stored as grid coords, not pixels)
+    const [problemTargets, setProblemTargets] = useState<
+        Record<number, { id: number; points: number[] }[]>
+    >(() => {
+        try {
+            const raw = localStorage.getItem('tangram:problemTargets');
+            if (raw) return JSON.parse(raw || '{}');
+        } catch (e) {
+            console.error(e);
+        }
+        const map: Record<number, { id: number; points: number[] }[]> = {};
+        for (const pb of initialProblemsList)
+            map[pb.id] = mockTarget.map(p => ({
+                id: p.id,
+                points: p.points.map(pi => Math.round(pi / GRID_CELL)),
+            }));
+        console.log(map);
+        return map;
+    });
+
+    // currently displayed target polygons (grid coords). 可在新建时清空
+    const [targetPolys, setTargetPolys] = useState(problemTargets[initialProblemsList[0].id] || []);
+
+    const [creating, setCreating] = useState(false);
+
+    // selected problem (moved up so useEffect can reference it)
+    const [selectedProblem, setSelectedProblem] = useState<number>(1);
+
+    // compute centered offset and pixel-version offsetTarget from targetPolys (grid coords -> pixels)
+    const allPointsPixels = targetPolys.flatMap(p => p.points.map(pi => pi * GRID_CELL));
+    const [offsetX, offsetY] = targetPolys.length
+        ? alignCenter(allPointsPixels, { width: size.width - 450, height: size.height })
+        : [0, 0];
+    const offsetTarget = targetPolys.map(p => ({
         ...p,
-        points: p.points.map((pi, i) => pi + [offsetX, offsetY][i % 2]),
+        points: p.points.map((pi, i) => pi * GRID_CELL + [offsetX, offsetY][i % 2]),
     }));
 
     useEffect(() => {
@@ -361,6 +390,13 @@ export default function TangramCanvas() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [size.width, size.height]);
+
+    // when selected problem changes or problemTargets changes, update displayed targetPolys
+    useEffect(() => {
+        // if selectedProblem maps to a target, use it; otherwise keep current targetPolys
+        if (problemTargets[selectedProblem]) setTargetPolys(problemTargets[selectedProblem]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedProblem, problemTargets]);
 
     const updatePiece = (id: number, patch: Partial<Piece>, callback?: (p: Piece[]) => void) => {
         setPieces(prev => {
@@ -400,35 +436,110 @@ export default function TangramCanvas() {
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 
     // sample problem list (placeholder titles). Later these can include thumbnails or shape data.
-    const problems = [
-        { id: 1, title: '正方形（默认）' },
-        { id: 2, title: '房子' },
-        { id: 3, title: '船' },
-        { id: 4, title: '菱形' },
-        { id: 5, title: '箭头' },
-        { id: 11, title: '正方形（默认）' },
-        { id: 21, title: '房子' },
-        { id: 31, title: '船' },
-        { id: 41, title: '菱形' },
-        { id: 51, title: '箭头' },
-        { id: 12, title: '正方形（默认）' },
-        { id: 22, title: '房子' },
-        { id: 32, title: '船' },
-        { id: 42, title: '菱形' },
-        { id: 52, title: '箭头' },
-        { id: 13, title: '正方形（默认）' },
-        { id: 23, title: '房子' },
-        { id: 33, title: '船' },
-    ];
-    const [selectedProblem, setSelectedProblem] = useState<number>(1);
-    const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
+    const [thumbnails, setThumbnails] = useState<Record<number, string>>(() => {
+        try {
+            const raw = localStorage.getItem('tangram:thumbnails');
+            console.log(raw);
+            if (raw) return JSON.parse(raw || '{}');
+        } catch (e) {
+            console.error(e);
+        }
+
+        return {};
+    });
     const [coverage, setCoverage] = useState<number>(0); // percentage 0-100
+    const [problems, setProblems] = useState(() => {
+        try {
+            const raw = localStorage.getItem('tangram:problems');
+            if (raw) return JSON.parse(raw || '{}');
+        } catch (e) {
+            console.error(e);
+        }
+
+        return initialProblemsList;
+    });
+    // persist problemTargets, thumbnails and problems to localStorage
+    const initialized = useRef(false);
+    useEffect(() => {
+        // Skip the first initialization
+        if (!initialized.current) {
+            initialized.current = true;
+            return;
+        }
+        try {
+            console.log(11111);
+            localStorage.setItem('tangram:problemTargets', JSON.stringify(problemTargets));
+            console.log(thumbnails);
+            localStorage.setItem('tangram:thumbnails', JSON.stringify(thumbnails));
+            localStorage.setItem('tangram:problems', JSON.stringify(problems));
+        } catch (e) {
+            // ignore storage errors
+        }
+    }, [problemTargets, thumbnails, problems]);
 
     useEffect(() => {
         if (pieces.length === 0) return;
-        const allPlaced = pieces.every(p => p.placed === true);
-        setShowFireworks(allPlaced && coverage >= 99);
+        setShowFireworks(coverage >= 98);
     }, [pieces, coverage]);
+
+    // handlers for creating new problem
+    const handleNew = () => {
+        // enter creation mode: clear targetPolys so canvas shows empty target area
+        setCreating(true);
+        setTargetPolys([]);
+        setPieces(defaultPieces(size.width, size.height));
+    };
+
+    const handleCancel = () => {
+        // exit creation mode, restore selected problem's target
+        setCreating(false);
+        setPieces(defaultPieces(size.width, size.height));
+        if (problemTargets[selectedProblem]) setTargetPolys(problemTargets[selectedProblem]);
+    };
+
+    const handleSave = (title?: string) => {
+        // convert currently placed pieces (those not in palette area) to target polygons
+        // We'll take each piece's transformed points, translate them relative to composition origin
+        const placedPieces = pieces;
+        setPieces(defaultPieces(size.width, size.height));
+        if (placedPieces.length === 0) {
+            // nothing to save, just exit
+            setCreating(false);
+            if (problemTargets[selectedProblem]) setTargetPolys(problemTargets[selectedProblem]);
+            return;
+        }
+
+        // compute target polygons in local coordinates (world coords -> remove offsets)
+        const newTargetsPixels = placedPieces.map((p, idx) => {
+            const pts = getTransformedPoints(p);
+            // convert back to local relative coordinates by removing offsetX/offsetY
+            const local = pts.map((v, i) => v - [offsetX, offsetY][i % 2]);
+            return { id: idx + 1, points: local };
+        });
+
+        // normalize to grid coords (0..4 style) for storage
+        const newTargetsGrid = newTargetsPixels.map(t => ({
+            id: t.id,
+            points: t.points.map(v => Math.round((v / GRID_CELL) * 100) / 100),
+        }));
+
+        // create new problem entry
+        const newId = Math.max(...problems.map(x => x.id)) + 1;
+        const newTitle = title || `用户题目 ${newId}`;
+        setProblems(prev => [...prev, { id: newId, title: newTitle }]);
+        setProblemTargets(prev => ({ ...prev, [newId]: newTargetsGrid }));
+        setSelectedProblem(newId);
+        setCreating(false);
+        setTargetPolys(newTargetsGrid);
+        console.log(newTargetsGrid);
+        // generate thumbnail for new target using pixel coords
+        const pixelForThumb = newTargetsGrid.map(p => ({
+            id: p.id,
+            points: p.points.map(v => v * GRID_CELL),
+        }));
+        const url = generateThumbnail(pixelForThumb, 160, 120);
+        setThumbnails(prev => ({ ...prev, [newId]: url }));
+    };
 
     // generate thumbnail data URL from target polygons (mockTarget)
     const generateThumbnail = (
@@ -494,12 +605,33 @@ export default function TangramCanvas() {
     // regenerate thumbnails when pieces change
     useEffect(() => {
         if (pieces.length === 0) return;
-        const url = generateThumbnail(offsetTarget, 160, 120);
+        // targetPolys are grid coords; convert to pixels for thumbnail generation
+        const pixelTargets = targetPolys.map(p => ({
+            id: p.id,
+            points: p.points.map(v => v * GRID_CELL),
+        }));
+        const url = generateThumbnail(pixelTargets, 160, 120);
         const map: Record<number, string> = {};
         for (const pb of problems) map[pb.id] = url;
-        setThumbnails(map);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pieces.length]);
+
+    // ensure thumbnails exist for all problems (generate from problemTargets)
+    useEffect(() => {
+        const missing: number[] = [];
+        for (const pb of problems) {
+            if (!thumbnails[pb.id]) missing.push(pb.id);
+        }
+        if (missing.length === 0) return;
+        const map = { ...thumbnails };
+        for (const id of missing) {
+            const t = problemTargets[id] || [];
+            const pixel = t.map(p => ({ id: p.id, points: p.points.map(v => v * GRID_CELL) }));
+            map[id] = generateThumbnail(pixel, 160, 120);
+        }
+        setThumbnails(map);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [problems, problemTargets]);
 
     // compute coverage of target area by current placed pieces (pixel mask comparison)
     const computeCoverage = (
@@ -599,14 +731,8 @@ export default function TangramCanvas() {
         return Math.round((coveredPixels / targetPixels) * 100);
     };
 
-    // const debouncedCompute = useRef(
-    //     _.debounce((pieces: Piece[], targetPolys: typeof mockTarget) => {
-    //         const pct = computeCoverage(pieces, targetPolys, 200, 160);
-    //         setCoverage(pct);
-    //     }, 50), // 防抖延迟 50ms
-    // ).current;
     const handleDragEnd = (e: any, piece: Piece) => {
-        // on drag end, try to snap to any matching edge of target
+        // on drag end, try to snap to any matching edge of current displayed target
         const snap = findSnapForPiece(piece, offsetTarget);
         if (snap) {
             updatePiece(
@@ -645,6 +771,31 @@ export default function TangramCanvas() {
                     flex: 'none',
                 }}
             >
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <button
+                        onClick={handleNew}
+                        style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
+                    >
+                        新建
+                    </button>
+                    {creating ? (
+                        <>
+                            <button
+                                onClick={() => handleSave()}
+                                style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
+                            >
+                                保存
+                            </button>
+                            <button
+                                onClick={handleCancel}
+                                style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
+                            >
+                                取消
+                            </button>
+                        </>
+                    ) : null}
+                </div>
+
                 <h3 style={{ margin: '6px 0 12px' }}>题目列表</h3>
                 <div style={{ fontSize: 13, color: '#333', marginBottom: 8 }}>
                     目标覆盖: <strong>{coverage}%</strong>
@@ -717,7 +868,7 @@ export default function TangramCanvas() {
 
             {/* Main canvas area */}
             <main style={{ flex: 1, position: 'relative' }}>
-                {showFireworks && <Fireworks />}
+                {/* {showFireworks && <Fireworks />} */}
                 {size.width > 0 && (
                     <Stage width={size.width} height={size.height}>
                         <Layer>
@@ -814,7 +965,6 @@ export default function TangramCanvas() {
                     </Stage>
                 )}
             </main>
-            {/* <div className="absolute top-0 right-0 h-screen w-[500px] flex-none bg-gray-950/30 backdrop-blur-sm"></div> */}
         </div>
     );
 }
