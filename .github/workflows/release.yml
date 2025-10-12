@@ -47,7 +47,10 @@ jobs:
 
       - name: Install serve globally in portable Node.js
         run: |
-          ./artifacts/nodejs/npm install serve
+          cd artifacts/nodejs
+          npm init -y
+          npm install --global-style --prefix=. serve
+          cd ../..
 
       - name: Move out directory to artifacts
         run: |
