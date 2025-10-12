@@ -1,44 +1,46 @@
 name: Deploy to GitHub Pages
 
 on:
-    push:
-        branches: ['main'] # 根据你的主分支名调整
+  push:
+    branches: ["main"] # 根据你的主分支名调整
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            pages: write
-            id-token: write
+  deploy:
+    runs-on: ubuntu-latest
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: 20
-                  registry-url: https://registry.npmjs.org/
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
 
-            - name: Install pnpm
-              run: npm install -g pnpm@8
+      - name: Install pnpm
+        run: npm install -g pnpm@8
 
-            - name: Install dependencies
-              run: pnpm install
+      - name: Install dependencies
+        run: pnpm install
 
-            - name: Build
-              run: pnpm build
+      - name: Build
+        run: pnpm build
 
-            - name: Setup Pages
-              uses: actions/configure-pages@v5
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
 
-            - name: Upload artifact
-              uses: actions/upload-pages-artifact@v3
-              with:
-                  path: './out' # 👈 注意是 out 目录！
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./out"
 
-            - name: Deploy to GitHub Pages
-              id: deployment
-              uses: actions/deploy-pages@v4
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
