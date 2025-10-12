@@ -338,15 +338,37 @@ export default function TangramCanvas() {
     // problems state (可动态添加题目)
     const initialProblemsList = [{ id: 1, title: '（默认）' }];
 
+    // 定义统一的数据结构用于存储所有题目相关数据
+    type ProblemData = {
+        id: number;
+        title: string;
+        targets: { id: number; points: number[] }[];
+        thumbnail: string;
+    };
+
+    type Problem = {
+        id: number;
+        title: string;
+    };
+
     // mapping from problem id -> target polygons (stored as grid coords, not pixels)
     const [problemTargets, setProblemTargets] = useState<
         Record<number, { id: number; points: number[] }[]>
     >(() => {
         try {
-            const raw = localStorage.getItem('tangram:problemTargets');
-            if (raw) return JSON.parse(raw || '{}');
+            // 首先尝试读取新的统一数据结构
+            const raw = localStorage.getItem('tangram:problemsData');
+            if (raw) {
+                const data: ProblemData[] = JSON.parse(raw);
+                const targets: Record<number, { id: number; points: number[] }[]> = {};
+                data.forEach(problem => {
+                    targets[problem.id] = problem.targets;
+                });
+                return targets;
+            }
         } catch (e) {
             console.error(e);
+            return {};
         }
         const map: Record<number, { id: number; points: number[] }[]> = {};
         for (const pb of initialProblemsList)
@@ -433,27 +455,48 @@ export default function TangramCanvas() {
         });
     };
 
+    const changeSelectedProblem = (id: number) => {
+        setSelectedProblem(id);
+        setPieces(defaultPieces(size.width, size.height));
+    };
+
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 
     // sample problem list (placeholder titles). Later these can include thumbnails or shape data.
     const [thumbnails, setThumbnails] = useState<Record<number, string>>(() => {
         try {
-            const raw = localStorage.getItem('tangram:thumbnails');
-            console.log(raw);
-            if (raw) return JSON.parse(raw || '{}');
+            // 首先尝试读取新的统一数据结构
+            const raw = localStorage.getItem('tangram:problemsData');
+            if (raw) {
+                const data: ProblemData[] = JSON.parse(raw);
+                const thumbs: Record<number, string> = {};
+                data.forEach(problem => {
+                    thumbs[problem.id] = problem.thumbnail;
+                });
+                return thumbs;
+            }
         } catch (e) {
             console.error(e);
+            return {};
         }
 
         return {};
     });
     const [coverage, setCoverage] = useState<number>(0); // percentage 0-100
-    const [problems, setProblems] = useState(() => {
+    const [problems, setProblems] = useState<Problem[]>(() => {
         try {
-            const raw = localStorage.getItem('tangram:problems');
-            if (raw) return JSON.parse(raw || '{}');
+            // 首先尝试读取新的统一数据结构
+            const raw = localStorage.getItem('tangram:problemsData');
+            if (raw) {
+                const data: ProblemData[] = JSON.parse(raw);
+                return data.map(problem => ({
+                    id: problem.id,
+                    title: problem.title,
+                }));
+            }
         } catch (e) {
             console.error(e);
+            return [];
         }
 
         return initialProblemsList;
@@ -467,11 +510,14 @@ export default function TangramCanvas() {
             return;
         }
         try {
-            console.log(11111);
-            localStorage.setItem('tangram:problemTargets', JSON.stringify(problemTargets));
-            console.log(thumbnails);
-            localStorage.setItem('tangram:thumbnails', JSON.stringify(thumbnails));
-            localStorage.setItem('tangram:problems', JSON.stringify(problems));
+            // 使用新的统一数据结构存储所有数据
+            const problemsData: ProblemData[] = problems.map((problem: Problem) => ({
+                id: problem.id,
+                title: problem.title,
+                targets: problemTargets[problem.id] || [],
+                thumbnail: thumbnails[problem.id] || '',
+            }));
+            localStorage.setItem('tangram:problemsData', JSON.stringify(problemsData));
         } catch (e) {
             // ignore storage errors
         }
@@ -524,9 +570,9 @@ export default function TangramCanvas() {
         }));
 
         // create new problem entry
-        const newId = Math.max(...problems.map(x => x.id)) + 1;
+        const newId = Math.max(...problems.map((x: Problem) => x.id)) + 1;
         const newTitle = title || `用户题目 ${newId}`;
-        setProblems(prev => [...prev, { id: newId, title: newTitle }]);
+        setProblems((prev: Problem[]) => [...prev, { id: newId, title: newTitle }]);
         setProblemTargets(prev => ({ ...prev, [newId]: newTargetsGrid }));
         setSelectedProblem(newId);
         setCreating(false);
@@ -757,6 +803,78 @@ export default function TangramCanvas() {
         }
     };
 
+    // 导出题目数据为JSON文件
+    const exportProblems = () => {
+        try {
+            // 创建统一数据结构
+            const problemsData: ProblemData[] = problems.map((problem: Problem) => ({
+                id: problem.id,
+                title: problem.title,
+                targets: problemTargets[problem.id] || [],
+                thumbnail: thumbnails[problem.id] || '',
+            }));
+
+            // 创建JSON数据
+            const dataStr = JSON.stringify(problemsData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+
+            // 创建下载链接并触发下载
+            const exportFileDefaultName = 'tangram-problems.json';
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', exportFileDefaultName);
+            linkElement.click();
+        } catch (e) {
+            console.error('导出失败:', e);
+            alert('导出失败，请查看控制台了解详情');
+        }
+    };
+
+    // 从JSON文件导入题目数据
+    const importProblems = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const content = e.target?.result as string;
+                const problemsData = JSON.parse(content) as ProblemData[];
+
+                // 更新各个状态
+                const newProblems: Problem[] = problemsData.map(problem => ({
+                    id: problem.id,
+                    title: problem.title,
+                }));
+
+                const newProblemTargets: Record<number, { id: number; points: number[] }[]> = {};
+                const newThumbnails: Record<number, string> = {};
+
+                problemsData.forEach(problem => {
+                    newProblemTargets[problem.id] = problem.targets;
+                    newThumbnails[problem.id] = problem.thumbnail;
+                });
+
+                setProblems(newProblems);
+                setProblemTargets(newProblemTargets);
+                setThumbnails(newThumbnails);
+
+                // 如果有题目，选择第一个
+                if (newProblems.length > 0) {
+                    setSelectedProblem(newProblems[0].id);
+                }
+
+                alert(`成功导入 ${problemsData.length} 个题目`);
+            } catch (e) {
+                console.error('导入失败:', e);
+                alert('导入失败，请确保选择的是有效的JSON文件');
+            }
+        };
+        reader.readAsText(file);
+        // 重置input值以便可以重复导入相同文件
+        event.target.value = '';
+    };
+
     return (
         <div style={{ display: 'flex', width: '100%', height: '100vh', position: 'relative' }}>
             {/* Sidebar */}
@@ -794,6 +912,30 @@ export default function TangramCanvas() {
                             </button>
                         </>
                     ) : null}
+                    <button
+                        onClick={exportProblems}
+                        style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
+                    >
+                        导出
+                    </button>
+                    <label
+                        htmlFor="import-problems"
+                        style={{
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            cursor: 'pointer',
+                            background: '#f0f0f0',
+                        }}
+                    >
+                        导入
+                    </label>
+                    <input
+                        id="import-problems"
+                        type="file"
+                        accept=".json"
+                        onChange={importProblems}
+                        style={{ display: 'none' }}
+                    />
                 </div>
 
                 <h3 style={{ margin: '6px 0 12px' }}>题目列表</h3>
@@ -801,10 +943,10 @@ export default function TangramCanvas() {
                     目标覆盖: <strong>{coverage}%</strong>
                 </div>
                 <div style={{ display: 'grid', gap: 8 }}>
-                    {problems.map(pb => (
+                    {problems.map((pb: Problem) => (
                         <button
                             key={pb.id}
-                            onClick={() => setSelectedProblem(pb.id)}
+                            onClick={() => changeSelectedProblem(pb.id)}
                             style={{
                                 textAlign: 'left',
                                 padding: '8px 10px',
