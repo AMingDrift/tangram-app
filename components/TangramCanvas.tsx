@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Line, Group, Text } from 'react-konva';
-import Fireworks from './Fireworks';
-import _ from 'lodash';
+// import Fireworks from './Fireworks';
 
 type Piece = {
     id: number;
@@ -330,7 +329,7 @@ const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points: numbe
 export default function TangramCanvas() {
     const [size, setSize] = useState({ width: 0, height: 0 });
     const [pieces, setPieces] = useState<Piece[]>([]);
-    const [showFireworks, setShowFireworks] = useState(false);
+    // const [showFireworks, setShowFireworks] = useState(false);
     const groupRefs = useRef<Record<number, any>>({});
 
     // composition creation area size (for new puzzles)
@@ -355,20 +354,22 @@ export default function TangramCanvas() {
     const [problemTargets, setProblemTargets] = useState<
         Record<number, { id: number; points: number[] }[]>
     >(() => {
-        try {
-            // 首先尝试读取新的统一数据结构
-            const raw = localStorage.getItem('tangram:problemsData');
-            if (raw) {
-                const data: ProblemData[] = JSON.parse(raw);
-                const targets: Record<number, { id: number; points: number[] }[]> = {};
-                data.forEach(problem => {
-                    targets[problem.id] = problem.targets;
-                });
-                return targets;
+        if (typeof window !== 'undefined') {
+            try {
+                // 首先尝试读取新的统一数据结构
+                const raw = localStorage.getItem('tangram:problemsData');
+                if (raw) {
+                    const data: ProblemData[] = JSON.parse(raw);
+                    const targets: Record<number, { id: number; points: number[] }[]> = {};
+                    data.forEach(problem => {
+                        targets[problem.id] = problem.targets;
+                    });
+                    return targets;
+                }
+            } catch (e) {
+                console.error(e);
+                return {};
             }
-        } catch (e) {
-            console.error(e);
-            return {};
         }
         const map: Record<number, { id: number; points: number[] }[]> = {};
         for (const pb of initialProblemsList)
@@ -457,46 +458,55 @@ export default function TangramCanvas() {
 
     const changeSelectedProblem = (id: number) => {
         setSelectedProblem(id);
-        setPieces(defaultPieces(size.width, size.height));
+        setPieces(() => {
+            const pieces = defaultPieces(size.width, size.height);
+            const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+            setCoverage(pct);
+            return pieces;
+        });
     };
 
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 
     // sample problem list (placeholder titles). Later these can include thumbnails or shape data.
     const [thumbnails, setThumbnails] = useState<Record<number, string>>(() => {
-        try {
-            // 首先尝试读取新的统一数据结构
-            const raw = localStorage.getItem('tangram:problemsData');
-            if (raw) {
-                const data: ProblemData[] = JSON.parse(raw);
-                const thumbs: Record<number, string> = {};
-                data.forEach(problem => {
-                    thumbs[problem.id] = problem.thumbnail;
-                });
-                return thumbs;
+        if (typeof window !== 'undefined') {
+            try {
+                // 首先尝试读取新的统一数据结构
+                const raw = localStorage.getItem('tangram:problemsData');
+                if (raw) {
+                    const data: ProblemData[] = JSON.parse(raw);
+                    const thumbs: Record<number, string> = {};
+                    data.forEach(problem => {
+                        thumbs[problem.id] = problem.thumbnail;
+                    });
+                    return thumbs;
+                }
+            } catch (e) {
+                console.error(e);
+                return {};
             }
-        } catch (e) {
-            console.error(e);
-            return {};
         }
 
         return {};
     });
     const [coverage, setCoverage] = useState<number>(0); // percentage 0-100
     const [problems, setProblems] = useState<Problem[]>(() => {
-        try {
-            // 首先尝试读取新的统一数据结构
-            const raw = localStorage.getItem('tangram:problemsData');
-            if (raw) {
-                const data: ProblemData[] = JSON.parse(raw);
-                return data.map(problem => ({
-                    id: problem.id,
-                    title: problem.title,
-                }));
+        if (typeof window !== 'undefined') {
+            try {
+                // 首先尝试读取新的统一数据结构
+                const raw = localStorage.getItem('tangram:problemsData');
+                if (raw) {
+                    const data: ProblemData[] = JSON.parse(raw);
+                    return data.map(problem => ({
+                        id: problem.id,
+                        title: problem.title,
+                    }));
+                }
+            } catch (e) {
+                console.error(e);
+                return [];
             }
-        } catch (e) {
-            console.error(e);
-            return [];
         }
 
         return initialProblemsList;
@@ -509,6 +519,8 @@ export default function TangramCanvas() {
             initialized.current = true;
             return;
         }
+        if (typeof window === 'undefined') return;
+
         try {
             // 使用新的统一数据结构存储所有数据
             const problemsData: ProblemData[] = problems.map((problem: Problem) => ({
@@ -525,7 +537,7 @@ export default function TangramCanvas() {
 
     useEffect(() => {
         if (pieces.length === 0) return;
-        setShowFireworks(coverage >= 98);
+        // setShowFireworks(coverage >= 98);
     }, [pieces, coverage]);
 
     // handlers for creating new problem
@@ -939,9 +951,9 @@ export default function TangramCanvas() {
                 </div>
 
                 <h3 style={{ margin: '6px 0 12px' }}>题目列表</h3>
-                <div style={{ fontSize: 13, color: '#333', marginBottom: 8 }}>
+                {/* <div style={{ fontSize: 13, color: '#333', marginBottom: 8 }}>
                     目标覆盖: <strong>{coverage}%</strong>
-                </div>
+                </div> */}
                 <div style={{ display: 'grid', gap: 8 }}>
                     {problems.map((pb: Problem) => (
                         <button
