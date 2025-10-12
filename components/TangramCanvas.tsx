@@ -18,7 +18,6 @@ type Piece = {
 };
 
 const GRID_CELL = 100;
-const SIZE = 300;
 const SIDEBAR_WIDTH = 260;
 
 const mockTarget = [
@@ -93,13 +92,10 @@ const alignCenter = (allPoints: number[], size: { width: number; height: number 
 };
 
 const defaultPieces = (stageW: number, stageH: number): Piece[] => {
-    // base square size and center for the target composition
-    const size = SIZE;
     // global adjustment to nudge the whole composition slightly left and down
     const offsetX = -2 * GRID_CELL; // negative -> move left
     const offsetY = 4.5 * GRID_CELL; // positive -> move down
-    const left = stageW / 2 - size / 2; // top-left x of composition
-    const top = stageH / 2 - size / 2; // top-left y of composition
+    // composition top-left is computed when needed; left/top unused and removed
 
     // palette initial x on right side
     const px = stageW - 130;
@@ -203,6 +199,141 @@ const defaultPieces = (stageW: number, stageH: number): Piece[] => {
 
 const distance = (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x1 - x2, y1 - y2);
 
+// 返回 piece 在当前 rotation/x/y 下的世界坐标点数组
+const getTransformedPoints = (p: Piece) => {
+    const angle = ((p.rotation || 0) * Math.PI) / 180;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const cx = p.centerX ?? 0;
+    const cy = p.centerY ?? 0;
+    const out: number[] = [];
+    for (let i = 0; i < p.points.length; i += 2) {
+        const lx = p.points[i];
+        const ly = p.points[i + 1];
+        const rx = (lx - cx) * cosA - (ly - cy) * sinA + p.x;
+        const ry = (lx - cx) * sinA + (ly - cy) * cosA + p.y;
+        out.push(rx, ry);
+    }
+    return out;
+};
+
+type Edge = {
+    ax: number;
+    ay: number;
+    bx: number;
+    by: number;
+    length: number;
+    angle: number; // degrees
+    midx: number;
+    midy: number;
+};
+
+const getEdgesFromPoints = (pts: number[]) => {
+    const edges: Edge[] = [];
+    for (let i = 0; i < pts.length; i += 2) {
+        const ax = pts[i];
+        const ay = pts[i + 1];
+        const bx = pts[(i + 2) % pts.length];
+        const by = pts[(i + 3) % pts.length];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len = Math.hypot(dx, dy);
+        const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+        edges.push({
+            ax,
+            ay,
+            bx,
+            by,
+            length: len,
+            angle,
+            midx: (ax + bx) / 2,
+            midy: (ay + by) / 2,
+        });
+    }
+    return edges;
+};
+
+const angleDiff = (a: number, b: number) => {
+    let d = Math.abs(((a - b) % 360) + 360) % 360;
+    if (d > 180) d = 360 - d;
+    return d;
+};
+
+// 尝试将 piece 的任意一条边吸附到目标多边形的任意一条边
+// 返回 {x,y,rotation} 或 null
+const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points: number[] }[]) => {
+    // tolerances
+    const MAX_LENGTH_DIFF = 12; // px
+    const MAX_ANGLE_DIFF = 10; // degrees
+    const MAX_MIDPOINT_DIST = 18; // px
+
+    const pieceWorldPts = getTransformedPoints(piece);
+    const pieceEdges = getEdgesFromPoints(pieceWorldPts);
+
+    // collect target edges
+    const targetEdges: Edge[] = [];
+    for (const t of targetPolys) {
+        const edges = getEdgesFromPoints(t.points);
+        for (const e of edges) targetEdges.push(e);
+    }
+
+    // try matching
+    for (const pe of pieceEdges) {
+        for (const te of targetEdges) {
+            const lenDiff = Math.abs(pe.length - te.length);
+            if (lenDiff > MAX_LENGTH_DIFF) continue;
+            // angle: consider both directions (edge could be reversed)
+            const d1 = angleDiff(pe.angle, te.angle);
+            const d2 = angleDiff((pe.angle + 180) % 360, te.angle);
+            if (d1 > MAX_ANGLE_DIFF && d2 > MAX_ANGLE_DIFF) continue;
+            // compute required rotation delta (rotate piece so pe.angle aligns with te.angle)
+            const chosenPeAngle = d1 <= d2 ? pe.angle : (pe.angle + 180) % 360;
+            const deltaAngle = te.angle - chosenPeAngle;
+
+            // simulate rotation around piece center
+            const newRotation = ((piece.rotation || 0) + deltaAngle + 360) % 360;
+            const rotated: Piece = { ...piece, rotation: newRotation };
+            const rotatedPts = getTransformedPoints(rotated);
+            const rotatedEdges = getEdgesFromPoints(rotatedPts);
+
+            // find the corresponding rotated piece edge (match by nearest mid point)
+            let matchedEdge: Edge | null = null;
+            for (const re of rotatedEdges) {
+                const md = distance(re.midx, re.midy, te.midx, te.midy);
+                if (md < MAX_MIDPOINT_DIST && Math.abs(re.length - te.length) < MAX_LENGTH_DIFF) {
+                    matchedEdge = re;
+                    break;
+                }
+            }
+            if (!matchedEdge) continue;
+
+            // compute translation to align midpoints
+            const dx = te.midx - matchedEdge.midx;
+            const dy = te.midy - matchedEdge.midy;
+            const newX = piece.x + dx;
+            const newY = piece.y + dy;
+
+            // validate endpoints overlap roughly
+            // find index of matched edge in original piece's edges to compute endpoints after transform
+            // we'll compute distance between edge endpoints after applying translation
+            const ax = matchedEdge.ax + dx;
+            const ay = matchedEdge.ay + dy;
+            const bx = matchedEdge.bx + dx;
+            const by = matchedEdge.by + dy;
+            const da = distance(ax, ay, te.ax, te.ay);
+            const db = distance(bx, by, te.bx, te.by);
+            const daRev = distance(ax, ay, te.bx, te.by);
+            const dbRev = distance(bx, by, te.ax, te.ay);
+            const best = Math.min(Math.max(da, db), Math.max(daRev, dbRev));
+            if (best > 20) continue; // endpoints too far
+
+            return { x: newX, y: newY, rotation: newRotation };
+        }
+    }
+
+    return null;
+};
+
 export default function TangramCanvas() {
     const [size, setSize] = useState({ width: 0, height: 0 });
     const [pieces, setPieces] = useState<Piece[]>([]);
@@ -231,76 +362,12 @@ export default function TangramCanvas() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [size.width, size.height]);
 
-    useEffect(() => {
-        if (pieces.length === 0) return;
-        const allPlaced = pieces.every(p => p.placed === true);
-        setShowFireworks(allPlaced);
-    }, [pieces]);
-
-    const updatePiece = (id: number, patch: Partial<Piece>) => {
-        setPieces(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
-    };
-
-    const handleDragEnd = (e: any, piece: Piece) => {
-        const newX = e.target.x();
-        const newY = e.target.y();
-        const rot = piece.rotation;
-
-        // First: snap to grid if close
-        const GRID = GRID_CELL / 2;
-        const GRID_SNAP = GRID / 2; // pixels threshold to snap to grid line
-        const nearestGridX = Math.round(newX / GRID) * GRID;
-        const nearestGridY = Math.round(newY / GRID) * GRID;
-
-        let snappedX = newX;
-        let snappedY = newY;
-        if (Math.abs(newX - nearestGridX) <= GRID_SNAP) snappedX = nearestGridX;
-        if (Math.abs(newY - nearestGridY) <= GRID_SNAP) snappedY = nearestGridY;
-
-        // // compute target positions for each mockTarget polygon (same alignment as TargetPieces)
-        // const allPoints = mockTarget.flatMap(p => p.points);
-        // const [tOffsetX, tOffsetY] = alignCenter(allPoints, { ...size, width: size.width - 400 });
-        // // target positions: for each mockTarget, center of its bbox after offset
-        // const targets: Record<number, { x: number; y: number; rotation: number }> = {};
-        // for (const mt of mockTarget) {
-        //     let minX = Infinity,
-        //         minY = Infinity,
-        //         maxX = -Infinity,
-        //         maxY = -Infinity;
-        //     for (let i = 0; i < mt.points.length; i += 2) {
-        //         const vx = mt.points[i];
-        //         const vy = mt.points[i + 1];
-        //         if (vx < minX) minX = vx;
-        //         if (vy < minY) minY = vy;
-        //         if (vx > maxX) maxX = vx;
-        //         if (vy > maxY) maxY = vy;
-        //     }
-        //     const cx = (minX + maxX) / 2 + tOffsetX;
-        //     const cy = (minY + maxY) / 2 + tOffsetY;
-        //     targets[mt.id] = { x: cx, y: cy, rotation: mt.rotation };
-        // }
-
-        // // Then: 检查是否靠近目标（基于 mockTarget centers）
-        // const tgt = targets[piece.id];
-        // if (tgt) {
-        //     const d = distance(snappedX, snappedY, tgt.x, tgt.y);
-        //     const rd = Math.abs(((rot - (tgt.rotation || 0) + 540) % 360) - 180); // minimal diff
-        //     const snapDistance = 40;
-        //     const snapRotation = 20; // degrees tolerance
-
-        //     if (d < snapDistance && rd < snapRotation) {
-        //         updatePiece(piece.id, {
-        //             x: tgt.x,
-        //             y: tgt.y,
-        //             rotation: tgt.rotation,
-        //             placed: true,
-        //         });
-        //     } else {
-        //         updatePiece(piece.id, { x: snappedX, y: snappedY });
-        //     }
-        // } else {
-        //     updatePiece(piece.id, { x: snappedX, y: snappedY });
-        // }
+    const updatePiece = (id: number, patch: Partial<Piece>, callback?: (p: Piece[]) => void) => {
+        setPieces(prev => {
+            const cur = prev.map(p => (p.id === id ? { ...p, ...patch } : p));
+            callback?.(cur);
+            return cur;
+        });
     };
 
     const handleDragMove = (e: any, piece: Piece) => {
@@ -324,7 +391,10 @@ export default function TangramCanvas() {
     const handleLabelClick = (e: any, piece: Piece) => {
         // 旋转45度
         const newRot = (piece.rotation + 45) % 360;
-        updatePiece(piece.id, { rotation: newRot });
+        updatePiece(piece.id, { rotation: newRot }, pieces => {
+            const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+            setCoverage(pct);
+        });
     };
 
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
@@ -353,6 +423,12 @@ export default function TangramCanvas() {
     const [selectedProblem, setSelectedProblem] = useState<number>(1);
     const [thumbnails, setThumbnails] = useState<Record<number, string>>({});
     const [coverage, setCoverage] = useState<number>(0); // percentage 0-100
+
+    useEffect(() => {
+        if (pieces.length === 0) return;
+        const allPlaced = pieces.every(p => p.placed === true);
+        setShowFireworks(allPlaced && coverage >= 99);
+    }, [pieces, coverage]);
 
     // generate thumbnail data URL from target polygons (mockTarget)
     const generateThumbnail = (
@@ -523,20 +599,37 @@ export default function TangramCanvas() {
         return Math.round((coveredPixels / targetPixels) * 100);
     };
 
-    const debouncedCompute = useRef(
-        _.debounce((pieces: Piece[], targetPolys: typeof mockTarget) => {
-            const pct = computeCoverage(pieces, targetPolys, 200, 160);
-            setCoverage(pct);
-        }, 150), // 防抖延迟 150ms
-    ).current;
-
-    // recalc coverage whenever pieces or size change
-    useEffect(() => {
-        if (pieces.length === 0 || size.width === 0) return;
-
-        // 调用防抖函数
-        debouncedCompute(pieces, offsetTarget);
-    }, [pieces, size.width, size.height]);
+    // const debouncedCompute = useRef(
+    //     _.debounce((pieces: Piece[], targetPolys: typeof mockTarget) => {
+    //         const pct = computeCoverage(pieces, targetPolys, 200, 160);
+    //         setCoverage(pct);
+    //     }, 50), // 防抖延迟 50ms
+    // ).current;
+    const handleDragEnd = (e: any, piece: Piece) => {
+        // on drag end, try to snap to any matching edge of target
+        const snap = findSnapForPiece(piece, offsetTarget);
+        if (snap) {
+            updatePiece(
+                piece.id,
+                {
+                    x: snap.x,
+                    y: snap.y,
+                    rotation: snap.rotation,
+                    placed: true,
+                },
+                pieces => {
+                    const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+                    setCoverage(pct);
+                },
+            );
+        } else {
+            // if not snapped, mark as not placed
+            updatePiece(piece.id, { placed: false }, pieces => {
+                const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+                setCoverage(pct);
+            });
+        }
+    };
 
     return (
         <div style={{ display: 'flex', width: '100%', height: '100vh', position: 'relative' }}>
