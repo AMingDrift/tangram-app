@@ -377,7 +377,6 @@ export default function TangramCanvas() {
                 id: p.id,
                 points: p.points.map(pi => Math.round(pi / GRID_CELL)),
             }));
-        console.log(map);
         return map;
     });
 
@@ -589,7 +588,6 @@ export default function TangramCanvas() {
         setSelectedProblem(newId);
         setCreating(false);
         setTargetPolys(newTargetsGrid);
-        console.log(newTargetsGrid);
         // generate thumbnail for new target using pixel coords
         const pixelForThumb = newTargetsGrid.map(p => ({
             id: p.id,
