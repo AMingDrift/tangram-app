@@ -2,6 +2,28 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Line, Group, Text } from 'react-konva';
+import { Button } from './ui/button';
+import { Ban, Download, PlusIcon, SaveIcon, Upload, Trash2, Edit3 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { toast } from 'sonner';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 // import Fireworks from './Fireworks';
 
 type Piece = {
@@ -388,6 +410,9 @@ export default function TangramCanvas() {
     // selected problem (moved up so useEffect can reference it)
     const [selectedProblem, setSelectedProblem] = useState<number>(1);
 
+    // Store previously selected problem when entering creation mode
+    const [previousSelectedProblem, setPreviousSelectedProblem] = useState<number>(1);
+
     // compute centered offset and pixel-version offsetTarget from targetPolys (grid coords -> pixels)
     const allPointsPixels = targetPolys.flatMap(p => p.points.map(pi => pi * GRID_CELL));
     const [offsetX, offsetY] = targetPolys.length
@@ -545,13 +570,19 @@ export default function TangramCanvas() {
         setCreating(true);
         setTargetPolys([]);
         setPieces(defaultPieces(size.width, size.height));
+        // Save currently selected problem and clear selection
+        setPreviousSelectedProblem(selectedProblem);
+        setSelectedProblem(0);
     };
 
     const handleCancel = () => {
         // exit creation mode, restore selected problem's target
         setCreating(false);
         setPieces(defaultPieces(size.width, size.height));
-        if (problemTargets[selectedProblem]) setTargetPolys(problemTargets[selectedProblem]);
+        // Restore previously selected problem
+        setSelectedProblem(previousSelectedProblem);
+        if (problemTargets[previousSelectedProblem])
+            setTargetPolys(problemTargets[previousSelectedProblem]);
     };
 
     const handleSave = (title?: string) => {
@@ -596,6 +627,36 @@ export default function TangramCanvas() {
         const url = generateThumbnail(pixelForThumb, 160, 120);
         setThumbnails(prev => ({ ...prev, [newId]: url }));
     };
+
+    // New function to handle save with dialog
+    const handleSaveWithDialog = () => {
+        const newId = Math.max(...problems.map((x: Problem) => x.id), 0) + 1;
+        const defaultTitle = `用户题目 ${newId}`;
+        setSaveDialogTitle(defaultTitle);
+        setSaveDialogTitleInput(defaultTitle);
+        setIsSaveDialogOpen(true);
+    };
+
+    // Function to confirm save with title
+    const confirmSaveWithTitle = () => {
+        handleSave(saveDialogTitleInput);
+        setIsSaveDialogOpen(false);
+        setSaveDialogTitleInput('');
+    };
+
+    // State for save dialog
+    const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+    const [saveDialogTitle, setSaveDialogTitle] = useState('');
+    const [saveDialogTitleInput, setSaveDialogTitleInput] = useState('');
+
+    // State for delete confirmation dialog
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [problemToDelete, setProblemToDelete] = useState<number | null>(null);
+
+    // State for edit dialog
+    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+    const [problemToEdit, setProblemToEdit] = useState<number | null>(null);
+    const [editProblemTitle, setEditProblemTitle] = useState('');
 
     // generate thumbnail data URL from target polygons (mockTarget)
     const generateThumbnail = (
@@ -669,7 +730,7 @@ export default function TangramCanvas() {
         const url = generateThumbnail(pixelTargets, 160, 120);
         const map: Record<number, string> = {};
         for (const pb of problems) map[pb.id] = url;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-nextine react-hooks/exhaustive-deps
     }, [pieces.length]);
 
     // ensure thumbnails exist for all problems (generate from problemTargets)
@@ -836,7 +897,7 @@ export default function TangramCanvas() {
             linkElement.click();
         } catch (e) {
             console.error('导出失败:', e);
-            alert('导出失败，请查看控制台了解详情');
+            toast.error('导出失败，请查看控制台了解详情');
         }
     };
 
@@ -874,10 +935,10 @@ export default function TangramCanvas() {
                     setSelectedProblem(newProblems[0].id);
                 }
 
-                alert(`成功导入 ${problemsData.length} 个题目`);
+                toast.success(`成功导入 ${problemsData.length} 个题目`);
             } catch (e) {
                 console.error('导入失败:', e);
-                alert('导入失败，请确保选择的是有效的JSON文件');
+                toast.error('导入失败，请确保选择的是有效的JSON文件');
             }
         };
         reader.readAsText(file);
@@ -885,141 +946,257 @@ export default function TangramCanvas() {
         event.target.value = '';
     };
 
+    // Delete problem function
+    const handleDeleteProblem = (id: number) => {
+        if (problems.length <= 1) {
+            toast.error('至少需要保留一个题目');
+            return;
+        }
+
+        const newProblems = problems.filter((p: Problem) => p.id !== id);
+        setProblems(newProblems);
+
+        const newProblemTargets = { ...problemTargets };
+        delete newProblemTargets[id];
+        setProblemTargets(newProblemTargets);
+
+        const newThumbnails = { ...thumbnails };
+        delete newThumbnails[id];
+        setThumbnails(newThumbnails);
+
+        // If we're deleting the currently selected problem, select the first one
+        if (selectedProblem === id) {
+            setSelectedProblem(newProblems[0].id);
+        }
+
+        toast.success('题目删除成功');
+    };
+
+    // Open delete confirmation dialog
+    const openDeleteDialog = (id: number) => {
+        setProblemToDelete(id);
+        setIsDeleteDialogOpen(true);
+    };
+
+    // Confirm delete
+    const confirmDelete = () => {
+        if (problemToDelete !== null) {
+            handleDeleteProblem(problemToDelete);
+        }
+        setIsDeleteDialogOpen(false);
+        setProblemToDelete(null);
+    };
+
+    // Open edit dialog
+    const openEditDialog = (id: number, currentTitle: string) => {
+        setProblemToEdit(id);
+        setEditProblemTitle(currentTitle);
+        setIsEditDialogOpen(true);
+    };
+
+    // Confirm edit
+    const confirmEdit = () => {
+        if (problemToEdit !== null) {
+            setProblems(problems.map(p => 
+                p.id === problemToEdit ? { ...p, title: editProblemTitle } : p
+            ));
+            toast.success('题目名称修改成功');
+        }
+        setIsEditDialogOpen(false);
+        setProblemToEdit(null);
+        setEditProblemTitle('');
+    };
+
     return (
-        <div style={{ display: 'flex', width: '100%', height: '100vh', position: 'relative' }}>
+        <div className="relative flex h-screen w-full">
             {/* Sidebar */}
-            <aside
-                style={{
-                    width: SIDEBAR_WIDTH,
-                    background: '#fafafa',
-                    borderRight: '1px solid #e6e6e6',
-                    padding: 12,
-                    boxSizing: 'border-box',
-                    overflow: 'auto',
-                    flex: 'none',
-                }}
-            >
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                    <button
-                        onClick={handleNew}
-                        style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
-                    >
-                        新建
-                    </button>
+            <aside className="box-border w-[260px] flex-none overflow-auto border-r border-gray-300 bg-gray-50 p-3">
+                <div className="mb-2 flex gap-2">
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Button
+                                className="cursor-pointer"
+                                onClick={handleNew}
+                                variant="outline"
+                                size="icon"
+                                aria-label="New"
+                                disabled={creating}
+                            >
+                                <PlusIcon />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>新建</p>
+                        </TooltipContent>
+                    </Tooltip>
+
                     {creating ? (
                         <>
-                            <button
-                                onClick={() => handleSave()}
-                                style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
-                            >
-                                保存
-                            </button>
-                            <button
-                                onClick={handleCancel}
-                                style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
-                            >
-                                取消
-                            </button>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Button
+                                        className="cursor-pointer"
+                                        onClick={handleSaveWithDialog}
+                                        variant="outline"
+                                        size="icon"
+                                        aria-label="Save"
+                                    >
+                                        <SaveIcon />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>保存</p>
+                                </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Button
+                                        className="cursor-pointer"
+                                        onClick={handleCancel}
+                                        variant="outline"
+                                        size="icon"
+                                        aria-label="Cancel"
+                                    >
+                                        <Ban />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>取消</p>
+                                </TooltipContent>
+                            </Tooltip>
                         </>
                     ) : null}
-                    <button
-                        onClick={exportProblems}
-                        style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer' }}
-                    >
-                        导出
-                    </button>
-                    <label
-                        htmlFor="import-problems"
-                        style={{
-                            padding: '6px 8px',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            background: '#f0f0f0',
-                        }}
-                    >
-                        导入
-                    </label>
-                    <input
-                        id="import-problems"
-                        type="file"
-                        accept=".json"
-                        onChange={importProblems}
-                        style={{ display: 'none' }}
-                    />
+
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Button
+                                className="cursor-pointer"
+                                onClick={exportProblems}
+                                variant="outline"
+                                size="icon"
+                                aria-label="Download"
+                                disabled={creating}
+                            >
+                                <Download />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>下载</p>
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Button
+                                className="cursor-pointer"
+                                variant="outline"
+                                size="icon"
+                                aria-label="Upload"
+                                disabled={creating}
+                                onClick={() => document.getElementById('import-problems')?.click()}
+                            >
+                                <Upload />
+                            </Button>
+
+                            <input
+                                id="import-problems"
+                                type="file"
+                                accept=".json"
+                                onChange={importProblems}
+                                className="hidden"
+                            />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>上传</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    
+                    {/* Show delete and edit buttons when a problem is selected and not in creating mode */}
+                    {!creating && selectedProblem !== 0 && (
+                        <>
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Button
+                                        className="cursor-pointer"
+                                        variant="outline"
+                                        size="icon"
+                                        aria-label="Delete"
+                                        onClick={() => openDeleteDialog(selectedProblem)}
+                                    >
+                                        <Trash2 />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>删除</p>
+                                </TooltipContent>
+                            </Tooltip>
+                            
+                            <Tooltip>
+                                <TooltipTrigger>
+                                    <Button
+                                        className="cursor-pointer"
+                                        variant="outline"
+                                        size="icon"
+                                        aria-label="Edit"
+                                        onClick={() => {
+                                            const problem = problems.find((p: Problem) => p.id === selectedProblem);
+                                            if (problem) {
+                                                openEditDialog(selectedProblem, problem.title);
+                                            }
+                                        }}
+                                    >
+                                        <Edit3 />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>编辑</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </>
+                    )}
                 </div>
 
-                <h3 style={{ margin: '6px 0 12px' }}>题目列表</h3>
-                {/* <div style={{ fontSize: 13, color: '#333', marginBottom: 8 }}>
+                <h3 className="text-md my-3 font-medium">题目列表</h3>
+                {/* <div className="text-sm text-gray-700 mb-2">
                     目标覆盖: <strong>{coverage}%</strong>
                 </div> */}
-                <div style={{ display: 'grid', gap: 8 }}>
+                <div className="grid gap-2">
                     {problems.map((pb: Problem) => (
-                        <button
+                        <div
                             key={pb.id}
-                            onClick={() => changeSelectedProblem(pb.id)}
-                            style={{
-                                textAlign: 'left',
-                                padding: '8px 10px',
-                                borderRadius: 6,
-                                border:
-                                    pb.id === selectedProblem
-                                        ? '2px solid #1976d2'
-                                        : '2px solid #e0e0e0',
-                                background: pb.id === selectedProblem ? '#e3f2fd' : '#fff',
-                                cursor: 'pointer',
-                            }}
+                            onClick={() => !creating && changeSelectedProblem(pb.id)}
+                            className={`cursor-pointer rounded-lg border-2 p-2 text-left transition-colors ${
+                                pb.id === selectedProblem
+                                    ? 'border-sky-500 bg-sky-50'
+                                    : 'border-gray-300 bg-white hover:bg-gray-100'
+                            } ${creating ? 'cursor-not-allowed! opacity-50' : ''}`}
                         >
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                <div
-                                    style={{
-                                        width: 72,
-                                        height: 54,
-                                        background: '#f5f5f5',
-                                        border: '1px solid #e0e0e0',
-                                        borderRadius: 6,
-                                        overflow: 'hidden',
-                                        flex: '0 0 auto',
-                                    }}
-                                >
+                            <div className="flex items-center gap-2">
+                                <div className="h-14 w-18 flex-none overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
                                     {thumbnails[pb.id] ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
                                             src={thumbnails[pb.id]}
                                             alt={pb.title}
-                                            style={{
-                                                width: '100%',
-                                                height: '100%',
-                                                objectFit: 'cover',
-                                                display: 'block',
-                                            }}
+                                            className="block h-full w-full object-cover"
                                         />
                                     ) : (
-                                        <div
-                                            style={{
-                                                width: '100%',
-                                                height: '100%',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                color: '#aaa',
-                                                fontSize: 12,
-                                            }}
-                                        >
+                                        <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
                                             预览
                                         </div>
                                     )}
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontWeight: 600 }}>{pb.title}</div>
+                                <div className="flex-1">
+                                    <div className="font-semibold">{pb.title}</div>
                                 </div>
                             </div>
-                        </button>
+                        </div>
                     ))}
                 </div>
             </aside>
 
             {/* Main canvas area */}
-            <main style={{ flex: 1, position: 'relative' }}>
+            <main className="relative flex-1">
                 {/* {showFireworks && <Fireworks />} */}
                 {size.width > 0 && (
                     <Stage width={size.width} height={size.height}>
@@ -1117,6 +1294,91 @@ export default function TangramCanvas() {
                     </Stage>
                 )}
             </main>
+            
+            {/* Delete confirmation dialog */}
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>确认删除</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            确定要删除这个题目吗？此操作无法撤销。
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>取消</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
+                            删除
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+            
+            {/* Edit problem dialog */}
+            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>编辑题目名称</DialogTitle>
+                        <DialogDescription>
+                            修改题目的名称，便于识别和使用。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Input
+                                id="title"
+                                value={editProblemTitle}
+                                onChange={(e) => setEditProblemTitle(e.target.value)}
+                                className="col-span-4"
+                                placeholder="输入题目名称"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        confirmEdit();
+                                    }
+                                }}
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                            取消
+                        </Button>
+                        <Button type="submit" onClick={confirmEdit}>
+                            保存
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+            
+            {/* Save problem dialog */}
+            <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>保存题目</DialogTitle>
+                        <DialogDescription>
+                            请输入题目的名称，以便后续识别和使用。
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Input
+                                id="title"
+                                value={saveDialogTitleInput}
+                                onChange={e => setSaveDialogTitleInput(e.target.value)}
+                                className="col-span-4"
+                                placeholder="输入题目名称"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>
+                            取消
+                        </Button>
+                        <Button type="submit" onClick={confirmSaveWithTitle}>
+                            保存
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
