@@ -632,7 +632,6 @@ export default function TangramCanvas() {
     const handleSaveWithDialog = () => {
         const newId = Math.max(...problems.map((x: Problem) => x.id), 0) + 1;
         const defaultTitle = `用户题目 ${newId}`;
-        setSaveDialogTitle(defaultTitle);
         setSaveDialogTitleInput(defaultTitle);
         setIsSaveDialogOpen(true);
     };
@@ -646,7 +645,6 @@ export default function TangramCanvas() {
 
     // State for save dialog
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
-    const [saveDialogTitle, setSaveDialogTitle] = useState('');
     const [saveDialogTitleInput, setSaveDialogTitleInput] = useState('');
 
     // State for delete confirmation dialog
@@ -997,9 +995,9 @@ export default function TangramCanvas() {
     // Confirm edit
     const confirmEdit = () => {
         if (problemToEdit !== null) {
-            setProblems(problems.map(p => 
-                p.id === problemToEdit ? { ...p, title: editProblemTitle } : p
-            ));
+            setProblems(
+                problems.map(p => (p.id === problemToEdit ? { ...p, title: editProblemTitle } : p)),
+            );
             toast.success('题目名称修改成功');
         }
         setIsEditDialogOpen(false);
@@ -1110,7 +1108,7 @@ export default function TangramCanvas() {
                             <p>上传</p>
                         </TooltipContent>
                     </Tooltip>
-                    
+
                     {/* Show delete and edit buttons when a problem is selected and not in creating mode */}
                     {!creating && selectedProblem !== 0 && (
                         <>
@@ -1130,7 +1128,7 @@ export default function TangramCanvas() {
                                     <p>删除</p>
                                 </TooltipContent>
                             </Tooltip>
-                            
+
                             <Tooltip>
                                 <TooltipTrigger>
                                     <Button
@@ -1139,7 +1137,9 @@ export default function TangramCanvas() {
                                         size="icon"
                                         aria-label="Edit"
                                         onClick={() => {
-                                            const problem = problems.find((p: Problem) => p.id === selectedProblem);
+                                            const problem = problems.find(
+                                                (p: Problem) => p.id === selectedProblem,
+                                            );
                                             if (problem) {
                                                 openEditDialog(selectedProblem, problem.title);
                                             }
@@ -1294,7 +1294,7 @@ export default function TangramCanvas() {
                     </Stage>
                 )}
             </main>
-            
+
             {/* Delete confirmation dialog */}
             <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                 <AlertDialogContent>
@@ -1306,31 +1306,32 @@ export default function TangramCanvas() {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>取消</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
+                        <AlertDialogAction
+                            onClick={confirmDelete}
+                            className="bg-red-600 hover:bg-red-700"
+                        >
                             删除
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-            
+
             {/* Edit problem dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                 <DialogContent className="sm:max-w-[425px]">
                     <DialogHeader>
                         <DialogTitle>编辑题目名称</DialogTitle>
-                        <DialogDescription>
-                            修改题目的名称，便于识别和使用。
-                        </DialogDescription>
+                        <DialogDescription>修改题目的名称，便于识别和使用。</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Input
                                 id="title"
                                 value={editProblemTitle}
-                                onChange={(e) => setEditProblemTitle(e.target.value)}
+                                onChange={e => setEditProblemTitle(e.target.value)}
                                 className="col-span-4"
                                 placeholder="输入题目名称"
-                                onKeyDown={(e) => {
+                                onKeyDown={e => {
                                     if (e.key === 'Enter') {
                                         confirmEdit();
                                     }
@@ -1348,7 +1349,7 @@ export default function TangramCanvas() {
                     </div>
                 </DialogContent>
             </Dialog>
-            
+
             {/* Save problem dialog */}
             <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
                 <DialogContent className="sm:max-w-[425px]">
