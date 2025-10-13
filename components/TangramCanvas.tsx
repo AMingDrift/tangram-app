@@ -105,16 +105,8 @@ const alignCenter = (allPoints: number[], size: { width: number; height: number 
     return [offsetX, offsetY];
 };
 
-const defaultPieces = (stageW: number, stageH: number): Piece[] => {
-    // global adjustment to nudge the whole composition slightly left and down
-    const offsetX = -2 * GRID_CELL; // negative -> move left
-    const offsetY = 4.5 * GRID_CELL; // positive -> move down
-    // composition top-left is computed when needed; left/top unused and removed
-
-    // palette initial x on right side
-    const px = stageW - 130;
-
-    return [
+const defaultTangram = (size: { width: number; height: number }): Piece[] => {
+    const allPoints = [
         // 1 大三角 - top big triangle (red)
         {
             id: 1,
@@ -203,11 +195,22 @@ const defaultPieces = (stageW: number, stageH: number): Piece[] => {
         },
     ].map(p => ({
         ...p,
-        x: p.x * GRID_CELL + offsetX + px,
-        y: p.y * GRID_CELL + offsetY,
+        x: p.x * GRID_CELL,
+        y: p.y * GRID_CELL,
         points: p.points.map(pi => pi * GRID_CELL),
         centerX: p.centerX * GRID_CELL,
         centerY: p.centerY * GRID_CELL,
+    }));
+
+    const [offsetX, offsetY] = alignCenter(
+        allPoints.flatMap(p => getTransformedPoints(p)),
+        { ...size, width: size.width * 0.5 },
+    );
+
+    return allPoints.map(p => ({
+        ...p,
+        x: p.x + offsetX + size.width * 0.5,
+        y: p.y + offsetY,
     }));
 };
 
@@ -437,7 +440,7 @@ export default function TangramCanvas() {
     // compute centered offset and pixel-version offsetTarget from targetPolys (grid coords -> pixels)
     const allPointsPixels = targetPolys.flatMap(p => p.points.map(pi => pi * GRID_CELL));
     const [offsetX, offsetY] = targetPolys.length
-        ? alignCenter(allPointsPixels, { width: size.width - 450, height: size.height })
+        ? alignCenter(allPointsPixels, { width: size.width * 0.6, height: size.height })
         : [0, 0];
     const offsetTarget = targetPolys.map(p => ({
         ...p,
@@ -454,7 +457,7 @@ export default function TangramCanvas() {
 
     useEffect(() => {
         if (size.width && size.height) {
-            setPieces(defaultPieces(size.width, size.height));
+            setPieces(defaultTangram(size));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [size.width, size.height]);
@@ -504,7 +507,7 @@ export default function TangramCanvas() {
     const changeSelectedProblem = (id: number) => {
         setSelectedProblem(id);
         setPieces(() => {
-            const pieces = defaultPieces(size.width, size.height);
+            const pieces = defaultTangram(size);
             const pct = computeCoverage(pieces, offsetTarget, 200, 160);
             setCoverage(pct);
             return pieces;
@@ -572,7 +575,7 @@ export default function TangramCanvas() {
         // enter creation mode: clear targetPolys so canvas shows empty target area
         setCreating(true);
         setTargetPolys([]);
-        setPieces(defaultPieces(size.width, size.height));
+        setPieces(defaultTangram(size));
         // Save currently selected problem and clear selection
         setPreviousSelectedProblem(selectedProblem);
         setSelectedProblem(-1);
@@ -581,7 +584,7 @@ export default function TangramCanvas() {
     const handleCancel = () => {
         // exit creation mode, restore selected problem's target
         setCreating(false);
-        setPieces(defaultPieces(size.width, size.height));
+        setPieces(defaultTangram(size));
         // Restore previously selected problem
         setSelectedProblem(previousSelectedProblem);
         if (problemTargets[previousSelectedProblem])
@@ -592,7 +595,7 @@ export default function TangramCanvas() {
         // convert currently placed pieces (those not in palette area) to target polygons
         // We'll take each piece's transformed points, translate them relative to composition origin
         const placedPieces = pieces;
-        setPieces(defaultPieces(size.width, size.height));
+        setPieces(defaultTangram(size));
         if (placedPieces.length === 0) {
             // nothing to save, just exit
             setCreating(false);
