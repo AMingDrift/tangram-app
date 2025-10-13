@@ -12,10 +12,7 @@ export default antfu(
         isInEditor: false,
         react: true,
         typescript: true,
-        stylistic: {
-            indent: 4,
-            quotes: 'single',
-        },
+        stylistic: false,
         markdown: false,
         toml: false,
         ignores: [

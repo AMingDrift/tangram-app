@@ -10,7 +10,7 @@
     },
 
     // 保存时自动格式化
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     "editor.codeActionsOnSave": {
         "source.fixAll.eslint": "explicit",
         "source.fixAll.stylelint": "explicit",
@@ -28,24 +28,16 @@
         "editor.formatOnSave": true
     },
     "[typescriptreact]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.indentSize": 4,
-        "editor.detectIndentation": false
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
     },
     "[javascriptreact]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.indentSize": 4,
-        "editor.detectIndentation": false
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
     },
     "[javascript]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.indentSize": 4,
-        "editor.detectIndentation": false
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
     },
     "[typescript]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode",
-        "editor.indentSize": 4,
-        "editor.detectIndentation": false
+        "editor.defaultFormatter": "dbaeumer.vscode-eslint"
     },
 
     // 静态文件格式化

@@ -6,10 +6,8 @@ const config = {
     endOfLine: 'auto',
     semi: true,
     tabWidth: 4,
-    useTabs: false,
-    bracketSpacing: true,
-    arrowParens: 'avoid',
     htmlWhitespaceSensitivity: 'strict',
     plugins: ['prettier-plugin-tailwindcss'],
+    tailwindStylesheet: 'app/globals.css',
 };
 export default config;
