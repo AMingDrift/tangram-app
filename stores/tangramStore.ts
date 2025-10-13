@@ -185,10 +185,12 @@ export const useTangramStore = create<TangramState>()(
                             newProblemTargets[d.id] = d.targets;
                             newThumbnails[d.id] = d.thumbnail || '';
                         });
+                        const pieces = defaultTangram(state.size);
                         return {
                             problems: newProblems,
                             problemTargets: newProblemTargets,
                             thumbnails: newThumbnails,
+                            pieces,
                             selectedProblem: newProblems.length > 0 ? newProblems[0].id : -1,
                         };
                     }),
