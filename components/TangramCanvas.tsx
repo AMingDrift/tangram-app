@@ -372,6 +372,27 @@ export default function TangramCanvas() {
         title: string;
     };
 
+    const [problems, setProblems] = useState<Problem[]>(() => {
+        if (typeof window !== 'undefined') {
+            try {
+                // 首先尝试读取新的统一数据结构
+                const raw = localStorage.getItem('tangram:problemsData');
+                if (raw) {
+                    const data: ProblemData[] = JSON.parse(raw);
+                    return data.map(problem => ({
+                        id: problem.id,
+                        title: problem.title,
+                    }));
+                }
+            } catch (e) {
+                console.error(e);
+                return [];
+            }
+        }
+
+        return initialProblemsList;
+    });
+
     // mapping from problem id -> target polygons (stored as grid coords, not pixels)
     const [problemTargets, setProblemTargets] = useState<
         Record<number, { id: number; points: number[] }[]>
@@ -393,6 +414,7 @@ export default function TangramCanvas() {
                 return {};
             }
         }
+
         const map: Record<number, { id: number; points: number[] }[]> = {};
         for (const pb of initialProblemsList)
             map[pb.id] = mockTarget.map(p => ({
@@ -406,12 +428,11 @@ export default function TangramCanvas() {
     const [targetPolys, setTargetPolys] = useState(problemTargets[initialProblemsList[0].id] || []);
 
     const [creating, setCreating] = useState(false);
-
     // selected problem (moved up so useEffect can reference it)
-    const [selectedProblem, setSelectedProblem] = useState<number>(1);
+    const [selectedProblem, setSelectedProblem] = useState<number>(problems[0].id);
 
     // Store previously selected problem when entering creation mode
-    const [previousSelectedProblem, setPreviousSelectedProblem] = useState<number>(1);
+    const [previousSelectedProblem, setPreviousSelectedProblem] = useState<number>(0);
 
     // compute centered offset and pixel-version offsetTarget from targetPolys (grid coords -> pixels)
     const allPointsPixels = targetPolys.flatMap(p => p.points.map(pi => pi * GRID_CELL));
@@ -515,26 +536,7 @@ export default function TangramCanvas() {
         return {};
     });
     const [coverage, setCoverage] = useState<number>(0); // percentage 0-100
-    const [problems, setProblems] = useState<Problem[]>(() => {
-        if (typeof window !== 'undefined') {
-            try {
-                // 首先尝试读取新的统一数据结构
-                const raw = localStorage.getItem('tangram:problemsData');
-                if (raw) {
-                    const data: ProblemData[] = JSON.parse(raw);
-                    return data.map(problem => ({
-                        id: problem.id,
-                        title: problem.title,
-                    }));
-                }
-            } catch (e) {
-                console.error(e);
-                return [];
-            }
-        }
 
-        return initialProblemsList;
-    });
     // persist problemTargets, thumbnails and problems to localStorage
     const initialized = useRef(false);
     useEffect(() => {
@@ -560,9 +562,10 @@ export default function TangramCanvas() {
     }, [problemTargets, thumbnails, problems]);
 
     useEffect(() => {
-        if (pieces.length === 0) return;
-        // setShowFireworks(coverage >= 98);
-    }, [pieces, coverage]);
+        if (coverage >= 98) {
+            // toast('🎉🎉🎉Congratulations! You solved the puzzle.');
+        }
+    }, [coverage]);
 
     // handlers for creating new problem
     const handleNew = () => {
@@ -572,7 +575,7 @@ export default function TangramCanvas() {
         setPieces(defaultPieces(size.width, size.height));
         // Save currently selected problem and clear selection
         setPreviousSelectedProblem(selectedProblem);
-        setSelectedProblem(0);
+        setSelectedProblem(-1);
     };
 
     const handleCancel = () => {
@@ -1065,52 +1068,8 @@ export default function TangramCanvas() {
                         </>
                     ) : null}
 
-                    <Tooltip>
-                        <TooltipTrigger>
-                            <Button
-                                className="cursor-pointer"
-                                onClick={exportProblems}
-                                variant="outline"
-                                size="icon"
-                                aria-label="Download"
-                                disabled={creating}
-                            >
-                                <Download />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>下载</p>
-                        </TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                        <TooltipTrigger>
-                            <Button
-                                className="cursor-pointer"
-                                variant="outline"
-                                size="icon"
-                                aria-label="Upload"
-                                disabled={creating}
-                                onClick={() => document.getElementById('import-problems')?.click()}
-                            >
-                                <Upload />
-                            </Button>
-
-                            <input
-                                id="import-problems"
-                                type="file"
-                                accept=".json"
-                                onChange={importProblems}
-                                className="hidden"
-                            />
-                        </TooltipTrigger>
-                        <TooltipContent>
-                            <p>上传</p>
-                        </TooltipContent>
-                    </Tooltip>
-
                     {/* Show delete and edit buttons when a problem is selected and not in creating mode */}
-                    {!creating && selectedProblem !== 0 && (
+                    {!creating && selectedProblem !== -1 && (
                         <>
                             <Tooltip>
                                 <TooltipTrigger>
@@ -1154,6 +1113,50 @@ export default function TangramCanvas() {
                             </Tooltip>
                         </>
                     )}
+
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Button
+                                className="cursor-pointer"
+                                onClick={exportProblems}
+                                variant="outline"
+                                size="icon"
+                                aria-label="Download"
+                                disabled={creating}
+                            >
+                                <Download />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>下载</p>
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger>
+                            <Button
+                                className="cursor-pointer"
+                                variant="outline"
+                                size="icon"
+                                aria-label="Upload"
+                                disabled={creating}
+                                onClick={() => document.getElementById('import-problems')?.click()}
+                            >
+                                <Upload />
+                            </Button>
+
+                            <input
+                                id="import-problems"
+                                type="file"
+                                accept=".json"
+                                onChange={importProblems}
+                                className="hidden"
+                            />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            <p>上传</p>
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
 
                 <h3 className="text-md my-3 font-medium">题目列表</h3>
@@ -1277,12 +1280,12 @@ export default function TangramCanvas() {
                                         <Text
                                             key={`label-${p.id}`}
                                             text={circled[p.id - 1]}
-                                            fontSize={20}
+                                            fontSize={26}
                                             fill={'#000'}
                                             x={p.centerX ?? 0}
                                             y={p.centerY ?? 0}
-                                            offsetX={10}
-                                            offsetY={10}
+                                            offsetX={13}
+                                            offsetY={13}
                                             rotation={-p.rotation}
                                             onClick={e => handleLabelClick(e, p)}
                                             onTap={e => handleLabelClick(e, p)}
