@@ -98,6 +98,5 @@
         "markdown": false,
         "scminput": false
     },
-    "yaml.maxItemsComputed": 50000,
-    "tailwindCSS.experimental.configFile": "src/app/styles/tailwind.css"
+    "yaml.maxItemsComputed": 50000
 }
