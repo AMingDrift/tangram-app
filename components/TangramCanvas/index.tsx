@@ -9,7 +9,7 @@ import { useTangramStore } from '@/stores/tangramStore';
 import CanvasStage from './CanvasStage';
 import Sidebar from './Sidebar';
 
-export const SIDEBAR_WIDTH = 300;
+export const SIDEBAR_WIDTH = 320;
 export default function TangramCanvasApp() {
     const { pieces, problemTargets, setPieces, setSize, setOffsetTarget, selectedProblem } =
         useTangramStore(

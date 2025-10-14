@@ -1,9 +1,23 @@
 'use client';
 
-import { Ban, Download, Edit3, PlusIcon, SaveIcon, Trash2, Upload } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+    Ban,
+    Check,
+    Download,
+    Edit3,
+    NotepadText,
+    PlusIcon,
+    SaveIcon,
+    Trash2,
+    Upload,
+} from 'lucide-react';
+import { customAlphabet } from 'nanoid';
+import Image from 'next/image';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/shallow';
+
+import type { Piece } from '@/lib/tangramUtils';
 
 import {
     AlertDialog,
@@ -23,18 +37,28 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { computeCoverage, defaultTangram } from '@/lib/tangramUtils';
+import {
+    computeCoverage,
+    defaultTangram,
+    generateThumbnail,
+    getTransformedPoints,
+    GRID_CELL,
+} from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
 import { SIDEBAR_WIDTH } from '.';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
+
 export default function Sidebar() {
+    const nanoid = customAlphabet('1234567890abcdef', 5);
+
     const {
         problems,
         size,
         offsetTarget,
         thumbnails,
+        drafts,
         creating,
         selectedProblem,
         startCreation,
@@ -47,12 +71,19 @@ export default function Sidebar() {
         editProblemTitleAction,
         importProblemsData,
         exportProblemsData,
+        setProblems,
+        problemTargets,
+        setProblemTargets,
+        setThumbnails,
+        setDraftForProblem,
+        clearDraftForProblem,
     } = useTangramStore(
         useShallow((state) => ({
             problems: state.problems,
             size: state.size,
             offsetTarget: state.offsetTarget,
             thumbnails: state.thumbnails,
+            drafts: state.drafts,
             creating: state.creating,
             selectedProblem: state.selectedProblem,
             startCreation: state.startCreation,
@@ -65,25 +96,57 @@ export default function Sidebar() {
             editProblemTitleAction: state.editProblemTitle,
             importProblemsData: state.importProblemsData,
             exportProblemsData: state.exportProblemsData,
+            setProblems: state.setProblems,
+            setDraftForProblem: state.setDraftForProblem,
+            clearDraftForProblem: state.clearDraftForProblem,
+            problemTargets: state.problemTargets,
+            setProblemTargets: state.setProblemTargets,
+            setThumbnails: state.setThumbnails,
         })),
     );
 
     // 页面首次加载时自动选中第一项（problems 可能异步获取，且只执行一次）
-    const [hasAutoSelected, setHasAutoSelected] = useState(false);
+    const hasAutoSelectedRef = useRef(false);
     useEffect(() => {
-        if (!hasAutoSelected && problems.length > 0 && selectedProblem === -1) {
+        if (!hasAutoSelectedRef.current && problems.length > 0 && selectedProblem === '') {
             setSelectedProblem(problems[0].id);
-            setHasAutoSelected(true);
+            hasAutoSelectedRef.current = true;
         }
-    }, [problems, selectedProblem, hasAutoSelected, setSelectedProblem]);
+    }, [problems, selectedProblem, setSelectedProblem]);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [saveDialogTitleInput, setSaveDialogTitleInput] = useState('');
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-    const [problemToDelete, setProblemToDelete] = useState<number | null>(null);
+    const [problemToDelete, setProblemToDelete] = useState<string | null>(null);
 
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-    const [problemToEdit, setProblemToEdit] = useState<number | null>(null);
+    const [problemToEdit, setProblemToEdit] = useState<string | null>(null);
     const [editProblemTitle, setEditProblemTitle] = useState('');
+
+    const [isAnswerDialogOpen, setIsAnswerDialogOpen] = useState(false);
+    const [isAnswerDeleteDialogOpen, setIsAnswerDeleteDialogOpen] = useState(false);
+    const [answerToDeleteIndex, setAnswerToDeleteIndex] = useState<number | null>(null);
+    const getAnswerKey = (a: { id?: string; pieces: Piece[]; thumbnail: string }) => {
+        if (a.thumbnail) return a.thumbnail;
+        try {
+            return btoa(JSON.stringify(a.pieces)).slice(0, 12);
+        } catch {
+            return String(Math.random()).slice(2, 10);
+        }
+    };
+    // derive answers directly from problems to avoid extra state
+    const currentProblem =
+        selectedProblem !== '' ? problems.find((p) => p.id === selectedProblem) : undefined;
+    const answers: { id?: string; pieces: Piece[]; thumbnail: string }[] =
+        currentProblem && Array.isArray(currentProblem.answers)
+            ? currentProblem.answers.slice()
+            : [];
+
+    // 确保从 store 中获取 pieces
+    const { pieces } = useTangramStore(
+        useShallow((state) => ({
+            pieces: state.pieces,
+        })),
+    );
 
     return (
         <aside
@@ -98,7 +161,7 @@ export default function Sidebar() {
                             onClick={() => {
                                 try {
                                     startCreation();
-                                    setSelectedProblem(-1); // 新建时不选中任何题目
+                                    setSelectedProblem(''); // 新建时不选中任何题目
                                 } catch (err) {
                                     console.error('新建失败', err);
                                 }
@@ -120,7 +183,7 @@ export default function Sidebar() {
                     <>
                         {/* Save dialog moved into Sidebar (only in creation mode) */}
                         <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-                            <DialogContent className="sm:max-w-[425px]">
+                            <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-[425px]">
                                 <DialogHeader>
                                     <DialogTitle>保存题目</DialogTitle>
                                     <DialogDescription>
@@ -154,7 +217,7 @@ export default function Sidebar() {
                                                 const id = saveCreation(
                                                     saveDialogTitleInput || undefined,
                                                 );
-                                                if (id && id > 0) {
+                                                if (id && id.length > 0) {
                                                     toast.success('题目已保存');
                                                 } else {
                                                     toast.error('保存失败：没有可保存的图形');
@@ -179,8 +242,17 @@ export default function Sidebar() {
                                     className="cursor-pointer"
                                     onClick={() => {
                                         // open save dialog
-                                        const newId =
-                                            Math.max(...problems.map((x: any) => x.id), 0) + 1;
+                                        // find existing titles like "用户题目 N" and choose max(N)+1
+                                        const re = /^用户题目\s*(\d+)$/;
+                                        let maxN = 0;
+                                        for (const p of problems) {
+                                            const m = String(p.title || '').match(re);
+                                            if (m) {
+                                                const n = Number(m[1]) || 0;
+                                                if (n > maxN) maxN = n;
+                                            }
+                                        }
+                                        const newId = maxN > 0 ? maxN + 1 : problems.length + 1;
                                         setSaveDialogTitleInput(`用户题目 ${newId}`);
                                         setIsSaveDialogOpen(true);
                                     }}
@@ -221,8 +293,8 @@ export default function Sidebar() {
                     </>
                 )}
 
-                {/* Show delete and edit buttons when a problem is selected and not in creating mode */}
-                {!creating && selectedProblem !== -1 && (
+                {/* Show delete and edit buttons when a problem is selected and not in creation mode */}
+                {!creating && selectedProblem !== '' && (
                     <>
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -267,6 +339,258 @@ export default function Sidebar() {
                                 <p>删除</p>
                             </TooltipContent>
                         </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    className="cursor-pointer"
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Answer List"
+                                    onClick={() => {
+                                        setIsAnswerDialogOpen(true);
+                                    }}
+                                >
+                                    <NotepadText />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>答案列表</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    className="cursor-pointer"
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Save Answer"
+                                    onClick={() => {
+                                        try {
+                                            // 修改 generateThumbnail 调用，增加 isAnswer 参数
+                                            const thumbnail = generateThumbnail(
+                                                pieces.map((p) => ({
+                                                    id: p.id,
+                                                    points: getTransformedPoints(p).map(
+                                                        (v) => v * GRID_CELL,
+                                                    ),
+                                                    color: p.color,
+                                                })),
+                                                160,
+                                                120,
+                                            );
+                                            const newAnswer = {
+                                                id: nanoid(),
+                                                pieces: [...pieces],
+                                                thumbnail,
+                                            };
+                                            const problemIndex = problems.findIndex(
+                                                (p) => p.id === selectedProblem,
+                                            );
+                                            if (problemIndex !== -1) {
+                                                const updatedProblems = [...problems];
+                                                const problem = updatedProblems[problemIndex];
+                                                problem.answers = problem.answers
+                                                    ? [...problem.answers, newAnswer]
+                                                    : [newAnswer];
+                                                setProblems(updatedProblems);
+                                                toast.success('答案已保存');
+                                            }
+                                        } catch (err) {
+                                            console.error('保存答案失败', err);
+                                            toast.error('保存答案失败');
+                                        }
+                                    }}
+                                >
+                                    <Check />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>保存答案</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        {/* Answer List Dialog */}
+                        <Dialog open={isAnswerDialogOpen} onOpenChange={setIsAnswerDialogOpen}>
+                            <DialogContent
+                                className="sm:max-w-[640px] lg:max-w-[60vw]"
+                                onPointerDownOutside={(e) => {
+                                    // Prevent closing the answers dialog when clicking outside
+                                    e.preventDefault();
+                                }}
+                            >
+                                <DialogHeader>
+                                    <DialogTitle>答案列表</DialogTitle>
+                                    <DialogDescription>点击答案以查看具体内容。</DialogDescription>
+                                </DialogHeader>
+                                <div className="grid max-h-[60vh] grid-cols-2 gap-4 overflow-auto py-4 pr-[1px] lg:max-h-[80vh]">
+                                    {answers.map((answer, index) => (
+                                        <div
+                                            key={
+                                                answer.id
+                                                    ? `${selectedProblem}-${answer.id}`
+                                                    : `${selectedProblem}-${getAnswerKey(answer)}`
+                                            }
+                                            role="button"
+                                            tabIndex={0}
+                                            className="relative flex cursor-pointer items-center justify-center rounded-lg border p-2 hover:bg-gray-100"
+                                            onClick={() => {
+                                                setPieces(answer.pieces || []);
+                                                setIsAnswerDialogOpen(false);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    setPieces(answer.pieces || []);
+                                                    setIsAnswerDialogOpen(false);
+                                                }
+                                            }}
+                                        >
+                                            {/* delete button - stop propagation so parent onClick isn't triggered */}
+                                            <div className="absolute top-2 right-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    aria-label={`删除答案 ${index + 1}`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setAnswerToDeleteIndex(index);
+                                                        setIsAnswerDeleteDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <Trash2 className="text-red-500" />
+                                                </Button>
+                                            </div>
+
+                                            <div className="flex justify-center">
+                                                <Image
+                                                    src={answer.thumbnail}
+                                                    alt={`答案 ${index + 1}`}
+                                                    width={200}
+                                                    height={200}
+                                                    unoptimized
+                                                    className="block h-auto w-[200px] object-contain"
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-end">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => setIsAnswerDialogOpen(false)}
+                                    >
+                                        关闭
+                                    </Button>
+                                </div>
+                            </DialogContent>
+                        </Dialog>
+                        {/* Answer delete confirmation dialog */}
+                        <AlertDialog
+                            open={isAnswerDeleteDialogOpen}
+                            onOpenChange={setIsAnswerDeleteDialogOpen}
+                        >
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>删除答案</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        确定要删除此答案吗？
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel
+                                        onClick={() => {
+                                            setIsAnswerDeleteDialogOpen(false);
+                                            setAnswerToDeleteIndex(null);
+                                        }}
+                                    >
+                                        取消
+                                    </AlertDialogCancel>
+                                    <AlertDialogAction
+                                        onClick={() => {
+                                            try {
+                                                if (
+                                                    selectedProblem === '' ||
+                                                    answerToDeleteIndex === null
+                                                ) {
+                                                    toast.error('删除失败：未选中题目或答案');
+                                                    return;
+                                                }
+                                                const updated = problems.slice();
+                                                const pi = updated.findIndex(
+                                                    (p) => p.id === selectedProblem,
+                                                );
+                                                if (pi === -1) {
+                                                    toast.error('删除失败：未找到题目');
+                                                    return;
+                                                }
+                                                const problem = { ...updated[pi] } as any;
+                                                const ans = Array.isArray(problem.answers)
+                                                    ? problem.answers.slice()
+                                                    : [];
+                                                if (
+                                                    answerToDeleteIndex! < 0 ||
+                                                    answerToDeleteIndex! >= ans.length
+                                                ) {
+                                                    toast.error('删除失败：无效的答案索引');
+                                                    return;
+                                                }
+                                                // keep a copy for undo
+                                                const deletedAnswer = ans[answerToDeleteIndex!];
+                                                const deletedIndex = answerToDeleteIndex!;
+                                                ans.splice(answerToDeleteIndex!, 1);
+                                                problem.answers = ans;
+                                                updated[pi] = problem;
+                                                setProblems(updated);
+                                                // close the answers dialog so user sees toast (restore previous behavior)
+                                                toast.success('答案已删除', {
+                                                    action: {
+                                                        label: '撤销',
+                                                        onClick: () => {
+                                                            try {
+                                                                const restored = updated.slice();
+                                                                const pIdx = restored.findIndex(
+                                                                    (p) => p.id === selectedProblem,
+                                                                );
+                                                                if (pIdx === -1) return;
+                                                                const prob = {
+                                                                    ...restored[pIdx],
+                                                                } as any;
+                                                                const currentAnswers =
+                                                                    Array.isArray(prob.answers)
+                                                                        ? prob.answers.slice()
+                                                                        : [];
+                                                                currentAnswers.splice(
+                                                                    deletedIndex,
+                                                                    0,
+                                                                    deletedAnswer,
+                                                                );
+                                                                prob.answers = currentAnswers;
+                                                                restored[pIdx] = prob;
+                                                                setProblems(restored);
+                                                                // reopen answers dialog after undo so user sees the restored answer
+                                                                toast.success('已撤销删除');
+                                                            } catch (err) {
+                                                                console.error('撤销失败', err);
+                                                                toast.error('撤销失败');
+                                                            }
+                                                        },
+                                                    },
+                                                });
+                                            } catch (err) {
+                                                console.error('删除答案失败', err);
+                                                toast.error('删除答案失败');
+                                            } finally {
+                                                setIsAnswerDeleteDialogOpen(false);
+                                                setAnswerToDeleteIndex(null);
+                                            }
+                                        }}
+                                    >
+                                        删除
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                     </>
                 )}
 
@@ -328,7 +652,11 @@ export default function Sidebar() {
                                 try {
                                     const data = JSON.parse(ev.target?.result as string);
                                     importProblemsData(data);
-                                    toast.success(`成功导入 ${problems.length} 个题目`);
+                                    // 使用setTimeout确保状态更新完成后再显示toast
+                                    setTimeout(() => {
+                                        const currentProblems = useTangramStore.getState().problems;
+                                        toast.success(`成功导入 ${currentProblems.length} 个题目`);
+                                    }, 0);
                                 } catch (err) {
                                     console.error('导入失败', err);
                                     toast.error('导入失败，请确保文件有效');
@@ -347,22 +675,45 @@ export default function Sidebar() {
 
             <h3 className="text-md my-3 font-medium">题目列表</h3>
             <div className="grid gap-2">
-                {problems.map((pb: { id: number; title: string }) => (
+                {problems.map((pb: { id: string; title: string }) => (
                     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
                     <div
                         key={pb.id}
                         onClick={() => {
                             if (creating) return;
-                            // set selected problem in store
-                            setSelectedProblem(pb.id);
-                            // initialize pieces using store size
-                            const pieces = defaultTangram(size);
-                            setPieces(pieces);
-                            // compute coverage using offsetTarget if available
-                            const targets =
-                                offsetTarget && offsetTarget.length > 0 ? offsetTarget : [];
-                            const pct = computeCoverage(pieces, targets, 200, 160);
-                            setCoverage(pct);
+                            try {
+                                // Before switching, save current pieces as transient draft in store
+                                if (selectedProblem && selectedProblem !== '') {
+                                    try {
+                                        if (pieces && pieces.length > 0) {
+                                            setDraftForProblem(selectedProblem, pieces);
+                                        } else {
+                                            // clear empty draft
+                                            clearDraftForProblem(selectedProblem);
+                                        }
+                                    } catch (e) {
+                                        console.warn('保存草稿失败', e);
+                                    }
+                                }
+
+                                // set selected problem in store
+                                setSelectedProblem(pb.id);
+
+                                // initialize pieces using transient draft from store if available, otherwise defaultTangram
+                                const initPieces =
+                                    Array.isArray(drafts?.[pb.id]) && drafts[pb.id].length > 0
+                                        ? drafts[pb.id]
+                                        : defaultTangram(size);
+                                setPieces(initPieces);
+
+                                // compute coverage using offsetTarget if available
+                                const targets =
+                                    offsetTarget && offsetTarget.length > 0 ? offsetTarget : [];
+                                const pct = computeCoverage(initPieces, targets, 200, 160);
+                                setCoverage(pct);
+                            } catch (err) {
+                                console.error('切换题目失败', err);
+                            }
                         }}
                         className={`cursor-pointer rounded-lg border-2 p-2 text-left transition-colors ${
                             pb.id === selectedProblem
@@ -371,13 +722,15 @@ export default function Sidebar() {
                         } ${creating ? 'cursor-not-allowed! opacity-50' : ''}`}
                     >
                         <div className="flex items-center gap-2">
-                            <div className="h-14 w-18 flex-none overflow-hidden rounded-lg border border-gray-300 bg-gray-100">
+                            <div className="h-14 w-18 flex-none overflow-hidden rounded-lg border border-gray-300 bg-white">
                                 {thumbnails[pb.id] ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
+                                    <Image
+                                        width={200}
+                                        height={200}
                                         src={thumbnails[pb.id]}
                                         alt={pb.title}
-                                        className="block h-full w-full object-cover"
+                                        unoptimized
+                                        className="block h-full w-full object-contain"
                                     />
                                 ) : (
                                     <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">
@@ -398,21 +751,88 @@ export default function Sidebar() {
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>确认删除</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            确定要删除这个题目吗？此操作无法撤销。
-                        </AlertDialogDescription>
+                        <AlertDialogDescription>确定要删除这个题目吗？</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>取消</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={() => {
-                                if (problemToDelete !== null) {
+                                try {
+                                    if (problemToDelete === null) {
+                                        toast.error('删除失败：无效的题目 ID');
+                                        return;
+                                    }
+
+                                    // capture state for undo
+                                    const idx = problems.findIndex((p) => p.id === problemToDelete);
+                                    const deletedProblem = problems[idx];
+                                    const deletedTargets = problemTargets?.[problemToDelete] ?? [];
+                                    const deletedThumbnail = thumbnails?.[problemToDelete] ?? '';
+
+                                    // perform delete
                                     deleteProblemById(problemToDelete);
+                                    setIsDeleteDialogOpen(false);
+
+                                    // show undo toast
+                                    toast.success('题目已删除', {
+                                        action: {
+                                            label: '撤销',
+                                            onClick: () => {
+                                                try {
+                                                    // re-insert problem at original index using latest store value
+                                                    const currentProblems = useTangramStore
+                                                        .getState()
+                                                        .problems.slice();
+                                                    const alreadyExists = currentProblems.some(
+                                                        (p) => p.id === deletedProblem.id,
+                                                    );
+                                                    if (!alreadyExists) {
+                                                        if (
+                                                            idx >= 0 &&
+                                                            idx <= currentProblems.length
+                                                        ) {
+                                                            currentProblems.splice(
+                                                                idx,
+                                                                0,
+                                                                deletedProblem,
+                                                            );
+                                                        } else {
+                                                            currentProblems.push(deletedProblem);
+                                                        }
+                                                    }
+                                                    // restore targets and thumbnail
+                                                    const newProblemTargets = {
+                                                        ...(problemTargets || {}),
+                                                        [deletedProblem.id]: deletedTargets,
+                                                    };
+                                                    const newThumbnails = {
+                                                        ...(thumbnails || {}),
+                                                        [deletedProblem.id]: deletedThumbnail,
+                                                    };
+                                                    // update store with currentProblems (may be unchanged if already existed)
+                                                    setProblems(currentProblems);
+                                                    setProblemTargets(newProblemTargets);
+                                                    setThumbnails(newThumbnails);
+                                                    // ensure the restored problem becomes the selected problem
+                                                    try {
+                                                        setSelectedProblem(deletedProblem.id);
+                                                    } catch (e) {
+                                                        // defensive: if setter is not available for some reason, ignore
+                                                        console.warn('无法设置选中题目', e);
+                                                    }
+                                                    toast.success('已撤销删除');
+                                                } catch (err) {
+                                                    console.error('撤销失败', err);
+                                                    toast.error('撤销失败');
+                                                }
+                                            },
+                                        },
+                                    });
+                                } catch (err) {
+                                    console.error('删除题目失败', err);
+                                    toast.error('删除题目失败');
                                 }
-                                setIsDeleteDialogOpen(false);
-                                setProblemToDelete(null);
                             }}
-                            className="bg-red-600 hover:bg-red-700"
                         >
                             删除
                         </AlertDialogAction>
@@ -420,51 +840,46 @@ export default function Sidebar() {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Edit dialog */}
+            {/* Edit problem title dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
                 <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>编辑题目标题</DialogTitle>
+                        <DialogDescription>
+                            修改题目的名称后，点击保存以更新题目。
+                        </DialogDescription>
+                    </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <DialogHeader>
-                            <DialogTitle>编辑题目名称</DialogTitle>
-                            <DialogDescription>修改题目的名称，便于识别和使用。</DialogDescription>
-                        </DialogHeader>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <Input
                                 id="edit-title"
                                 value={editProblemTitle}
                                 onChange={(e) => setEditProblemTitle(e.target.value)}
                                 className="col-span-4"
-                                placeholder="输入题目名称"
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                        // confirm edit
-                                        if (problemToEdit !== null) {
-                                            editProblemTitleAction(problemToEdit, editProblemTitle);
-                                            toast.success('题目名称修改成功');
-                                        }
-                                        setIsEditDialogOpen(false);
-                                        setProblemToEdit(null);
-                                    }
-                                }}
+                                placeholder="输入新题目名称"
                             />
                         </div>
-                        <div className="flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
-                                取消
-                            </Button>
-                            <Button
-                                onClick={() => {
-                                    if (problemToEdit !== null) {
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                            取消
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                if (problemToEdit !== null) {
+                                    try {
                                         editProblemTitleAction(problemToEdit, editProblemTitle);
-                                        toast.success('题目名称修改成功');
+                                        setIsEditDialogOpen(false);
+                                        toast.success('题目标题已更新');
+                                    } catch (err) {
+                                        console.error('更新失败', err);
+                                        toast.error('更新失败，请查看控制台了解详情');
                                     }
-                                    setIsEditDialogOpen(false);
-                                    setProblemToEdit(null);
-                                }}
-                            >
-                                保存
-                            </Button>
-                        </div>
+                                }
+                            }}
+                        >
+                            保存
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

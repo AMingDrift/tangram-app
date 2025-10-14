@@ -137,3 +137,20 @@ body {
         @apply bg-background text-foreground;
     }
 }
+
+/* Ensure toast notifications (sonner) appear above modal dialogs/masks */
+
+/* sonner renders containers with class names like .sonner and .sonner-container */
+.sonner,
+.sonner-container,
+.sonner-toast,
+.sonner-toast-wrapper {
+    position: relative !important;
+    z-index: 99999 !important;
+}
+
+/* As a fallback, target common toast containers */
+.toast,
+.toast-container {
+    z-index: 99999 !important;
+}

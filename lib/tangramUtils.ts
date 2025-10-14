@@ -166,18 +166,15 @@ export const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points
 
 // generate thumbnail data URL from target polygons (pixel coords)
 export const generateThumbnail = (
-    targetPolys: { id: number; points: number[] }[],
-    width = 160,
-    height = 120,
+    targetPolys: { id: number; points: number[]; color?: string }[],
+    // treat width/height as maximum allowed size; function will auto-size to content bbox
+    maxWidth = 160,
+    maxHeight = 120,
+    pad = 8,
 ) => {
     if (!targetPolys || targetPolys.length === 0) return '';
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return '';
 
-    // compute bounds
+    // compute bounds of all points
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -194,28 +191,52 @@ export const generateThumbnail = (
     }
     if (!Number.isFinite(minX)) return '';
 
-    const pad = 8;
     const contentW = Math.max(1, maxX - minX);
     const contentH = Math.max(1, maxY - minY);
-    const scale = Math.min((width - pad * 2) / contentW, (height - pad * 2) / contentH);
 
-    ctx.clearRect(0, 0, width, height);
+    // compute scale to fit within maxWidth/maxHeight, but allow upscaling if content is very small
+    const scale = Math.min(maxWidth / contentW, maxHeight / contentH, 1);
+
+    // final canvas size based on scaled content plus padding
+    const canvasW = Math.max(1, Math.ceil(contentW * scale + pad * 2));
+    const canvasH = Math.max(1, Math.ceil(contentH * scale + pad * 2));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasW;
+    canvas.height = canvasH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    // center offset so the content is centered within the canvas
+    const extraX = (canvasW - (contentW * scale + pad * 2)) / 2;
+    const extraY = (canvasH - (contentH * scale + pad * 2)) / 2;
+
+    ctx.clearRect(0, 0, canvasW, canvasH);
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, canvasW, canvasH);
 
-    ctx.fillStyle = 'rgba(0,0,0,0.9)';
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
     ctx.lineWidth = 1;
 
     for (const p of targetPolys) {
         ctx.beginPath();
         for (let i = 0; i < p.points.length; i += 2) {
-            const ax = (p.points[i] - minX) * scale + pad;
-            const ay = (p.points[i + 1] - minY) * scale + pad;
+            const ax = (p.points[i] - minX) * scale + pad + extraX;
+            const ay = (p.points[i + 1] - minY) * scale + pad + extraY;
             if (i === 0) ctx.moveTo(ax, ay);
             else ctx.lineTo(ax, ay);
         }
         ctx.closePath();
+        // use provided color if any, otherwise fallback to black
+        if (p.color) ctx.fillStyle = p.color;
+        else ctx.fillStyle = 'rgba(0,0,0,0.9)';
+
+        // stroke: slightly darker border for visibility
+        try {
+            ctx.strokeStyle = p.color || 'rgba(0,0,0,0.6)';
+        } catch {
+            ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        }
+
         ctx.fill();
         ctx.stroke();
     }
