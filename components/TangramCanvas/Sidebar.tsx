@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { computeCoverage, defaultTangram } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
+import { SIDEBAR_WIDTH } from '.';
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 export default function Sidebar() {
@@ -85,7 +86,10 @@ export default function Sidebar() {
     const [editProblemTitle, setEditProblemTitle] = useState('');
 
     return (
-        <aside className="box-border w-[260px] flex-none overflow-auto border-r border-gray-300 bg-gray-50 p-3">
+        <aside
+            className={`box-border overflow-auto border-r border-gray-300 bg-gray-50 p-3`}
+            style={{ flex: `0 0 ${SIDEBAR_WIDTH}px` }}
+        >
             <div className="mb-2 flex gap-2">
                 <Tooltip>
                     <TooltipTrigger asChild>

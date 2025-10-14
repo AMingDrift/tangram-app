@@ -9,6 +9,7 @@ import { useTangramStore } from '@/stores/tangramStore';
 import CanvasStage from './CanvasStage';
 import Sidebar from './Sidebar';
 
+export const SIDEBAR_WIDTH = 300;
 export default function TangramCanvasApp() {
     const { pieces, problemTargets, setPieces, setSize, setOffsetTarget, selectedProblem } =
         useTangramStore(
@@ -21,7 +22,6 @@ export default function TangramCanvasApp() {
                 selectedProblem: state.selectedProblem,
             })),
         );
-    const SIDEBAR_WIDTH = 260;
 
     useEffect(() => {
         const handleResize = () => {
