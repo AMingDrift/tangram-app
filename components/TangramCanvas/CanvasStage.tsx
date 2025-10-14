@@ -54,6 +54,21 @@ export default function CanvasStage() {
     const touchPanningRef = useRef(false);
     const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
 
+    // 检查事件目标或其父节点链中是否存在 draggable 属性（用于判定是否点中了 piece）
+    const isEventOnDraggable = (target: any) => {
+        let node = target;
+        try {
+            while (node) {
+                if (node.getAttr && node.getAttr('draggable')) return true;
+                // konva 上父节点为 parent
+                node = node.getParent ? node.getParent() : node.parent;
+            }
+        } catch {
+            // ignore
+        }
+        return false;
+    };
+
     const handleWheel = (e: any) => {
         const stage = stageRef.current;
         if (!stage) return;
@@ -97,12 +112,16 @@ export default function CanvasStage() {
         e.evt.preventDefault();
         const touches = e.evt.touches;
         if (touches.length === 1) {
-            // 单指触摸：开始平移
-            touchPanningRef.current = true;
-            lastTouchPosRef.current = {
-                x: touches[0].clientX,
-                y: touches[0].clientY,
-            };
+            // 单指触摸：如果不是点在 draggable piece 上，开始平移
+            const target = e.target || e.evt?.target;
+            const onDraggable = isEventOnDraggable(target);
+            if (!onDraggable) {
+                touchPanningRef.current = true;
+                lastTouchPosRef.current = {
+                    x: touches[0].clientX,
+                    y: touches[0].clientY,
+                };
+            }
         }
 
         if (touches.length === 2) {
@@ -198,7 +217,8 @@ export default function CanvasStage() {
         const stage = stageRef.current;
         if (!stage) return;
         // 如果未点击 draggable shape，则开始平移
-        if (e.target && e.target.getAttr && !e.target.getAttr('draggable')) {
+        const target = e.target || e.evt?.target;
+        if (!isEventOnDraggable(target)) {
             isPanningRef.current = true;
             lastPanPosition.current = { x: e.evt.clientX, y: e.evt.clientY };
         }
