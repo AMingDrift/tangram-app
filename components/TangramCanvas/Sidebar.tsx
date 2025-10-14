@@ -31,27 +31,39 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 export default function Sidebar() {
     const {
         problems,
+        size,
+        offsetTarget,
         thumbnails,
         creating,
         selectedProblem,
         startCreation,
+        setPieces,
+        setCoverage,
         setSelectedProblem,
         cancelCreation,
         saveCreation,
         deleteProblemById,
         editProblemTitleAction,
+        importProblemsData,
+        exportProblemsData,
     } = useTangramStore(
         useShallow((state) => ({
             problems: state.problems,
+            size: state.size,
+            offsetTarget: state.offsetTarget,
             thumbnails: state.thumbnails,
             creating: state.creating,
             selectedProblem: state.selectedProblem,
             startCreation: state.startCreation,
             setSelectedProblem: state.setSelectedProblem,
+            setPieces: state.setPieces,
+            setCoverage: state.setCoverage,
             cancelCreation: state.cancelCreation,
             saveCreation: state.saveCreation,
             deleteProblemById: state.deleteProblemById,
             editProblemTitleAction: state.editProblemTitle,
+            importProblemsData: state.importProblemsData,
+            exportProblemsData: state.exportProblemsData,
         })),
     );
 
@@ -163,9 +175,8 @@ export default function Sidebar() {
                                     className="cursor-pointer"
                                     onClick={() => {
                                         // open save dialog
-                                        const st = useTangramStore.getState();
                                         const newId =
-                                            Math.max(...st.problems.map((x: any) => x.id), 0) + 1;
+                                            Math.max(...problems.map((x: any) => x.id), 0) + 1;
                                         setSaveDialogTitleInput(`用户题目 ${newId}`);
                                         setIsSaveDialogOpen(true);
                                     }}
@@ -217,8 +228,7 @@ export default function Sidebar() {
                                     size="icon"
                                     aria-label="Edit"
                                     onClick={() => {
-                                        const st = useTangramStore.getState();
-                                        const pb = st.problems.find(
+                                        const pb = problems.find(
                                             (p: any) => p.id === selectedProblem,
                                         );
                                         setProblemToEdit(selectedProblem);
@@ -262,7 +272,7 @@ export default function Sidebar() {
                             className="cursor-pointer"
                             onClick={() => {
                                 try {
-                                    const dataStr = useTangramStore.getState().exportProblemsData();
+                                    const dataStr = exportProblemsData();
                                     const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(
                                         dataStr,
                                     )}`;
@@ -313,9 +323,8 @@ export default function Sidebar() {
                             reader.onload = (ev) => {
                                 try {
                                     const data = JSON.parse(ev.target?.result as string);
-                                    useTangramStore.getState().importProblemsData(data as any[]);
-                                    const st = useTangramStore.getState();
-                                    toast.success(`成功导入 ${st.problems.length} 个题目`);
+                                    importProblemsData(data);
+                                    toast.success(`成功导入 ${problems.length} 个题目`);
                                 } catch (err) {
                                     console.error('导入失败', err);
                                     toast.error('导入失败，请确保文件有效');
@@ -341,18 +350,15 @@ export default function Sidebar() {
                         onClick={() => {
                             if (creating) return;
                             // set selected problem in store
-                            useTangramStore.getState().setSelectedProblem(pb.id);
+                            setSelectedProblem(pb.id);
                             // initialize pieces using store size
-                            const st = useTangramStore.getState();
-                            const pieces = defaultTangram(st.size);
-                            useTangramStore.getState().setPieces(pieces);
+                            const pieces = defaultTangram(size);
+                            setPieces(pieces);
                             // compute coverage using offsetTarget if available
                             const targets =
-                                st.offsetTarget && (st.offsetTarget as any[]).length > 0
-                                    ? (st.offsetTarget as any[])
-                                    : [];
-                            const pct = computeCoverage(pieces, targets as any, 200, 160);
-                            useTangramStore.getState().setCoverage(pct);
+                                offsetTarget && offsetTarget.length > 0 ? offsetTarget : [];
+                            const pct = computeCoverage(pieces, targets, 200, 160);
+                            setCoverage(pct);
                         }}
                         className={`cursor-pointer rounded-lg border-2 p-2 text-left transition-colors ${
                             pb.id === selectedProblem
