@@ -1,8 +1,9 @@
 'use client';
 
 import { Ban, Download, Edit3, PlusIcon, SaveIcon, Trash2, Upload } from 'lucide-react';
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useShallow } from 'zustand/shallow';
 
 import {
     AlertDialog,
@@ -27,26 +28,41 @@ import { useTangramStore } from '@/stores/tangramStore';
 
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-
 export default function Sidebar() {
-    const problems = useTangramStore((s: any) => s.problems as { id: number; title: string }[]);
-    const thumbnails = useTangramStore((s: any) => s.thumbnails as Record<number, string>);
-    const creating = useTangramStore((s: any) => s.creating as boolean);
-    const selectedProblem = useTangramStore((s: any) => s.selectedProblem as number);
-    const startCreation = useTangramStore((s: any) => s.startCreation as () => void);
-    const setSelectedProblem = useTangramStore(
-        (s: any) => s.setSelectedProblem as (id: number) => void,
+    const {
+        problems,
+        thumbnails,
+        creating,
+        selectedProblem,
+        startCreation,
+        setSelectedProblem,
+        cancelCreation,
+        saveCreation,
+        deleteProblemById,
+        editProblemTitleAction,
+    } = useTangramStore(
+        useShallow((state) => ({
+            problems: state.problems,
+            thumbnails: state.thumbnails,
+            creating: state.creating,
+            selectedProblem: state.selectedProblem,
+            startCreation: state.startCreation,
+            setSelectedProblem: state.setSelectedProblem,
+            cancelCreation: state.cancelCreation,
+            saveCreation: state.saveCreation,
+            deleteProblemById: state.deleteProblemById,
+            editProblemTitleAction: state.editProblemTitle,
+        })),
     );
-    const cancelCreation = useTangramStore((s: any) => s.cancelCreation as () => void);
-    const saveCreation = useTangramStore((s: any) => s.saveCreation as (title?: string) => number);
 
-    // 页面首次加载时自动选中第一项
-    React.useEffect(() => {
-        if (problems.length > 0 && selectedProblem === -1) {
-            useTangramStore.getState().setSelectedProblem(problems[0].id);
+    // 页面首次加载时自动选中第一项（problems 可能异步获取，且只执行一次）
+    const [hasAutoSelected, setHasAutoSelected] = useState(false);
+    useEffect(() => {
+        if (!hasAutoSelected && problems.length > 0 && selectedProblem === -1) {
+            setSelectedProblem(problems[0].id);
+            setHasAutoSelected(true);
         }
-        // 只在挂载时运行
-    }, []);
+    }, [problems, selectedProblem, hasAutoSelected, setSelectedProblem]);
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [saveDialogTitleInput, setSaveDialogTitleInput] = useState('');
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -56,18 +72,11 @@ export default function Sidebar() {
     const [problemToEdit, setProblemToEdit] = useState<number | null>(null);
     const [editProblemTitle, setEditProblemTitle] = useState('');
 
-    const deleteProblemById = useTangramStore(
-        (s: any) => s.deleteProblemById as (id: number) => void,
-    );
-    const editProblemTitleAction = useTangramStore(
-        (s: any) => s.editProblemTitle as (id: number, title: string) => void,
-    );
-
     return (
         <aside className="box-border w-[260px] flex-none overflow-auto border-r border-gray-300 bg-gray-50 p-3">
             <div className="mb-2 flex gap-2">
                 <Tooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger asChild>
                         <Button
                             className="cursor-pointer"
                             onClick={() => {
@@ -149,7 +158,7 @@ export default function Sidebar() {
                         </Dialog>
 
                         <Tooltip>
-                            <TooltipTrigger>
+                            <TooltipTrigger asChild>
                                 <Button
                                     className="cursor-pointer"
                                     onClick={() => {
@@ -173,7 +182,7 @@ export default function Sidebar() {
                         </Tooltip>
 
                         <Tooltip>
-                            <TooltipTrigger>
+                            <TooltipTrigger asChild>
                                 <Button
                                     className="cursor-pointer"
                                     onClick={() => {
@@ -201,27 +210,7 @@ export default function Sidebar() {
                 {!creating && selectedProblem !== -1 && (
                     <>
                         <Tooltip>
-                            <TooltipTrigger>
-                                <Button
-                                    className="cursor-pointer"
-                                    variant="outline"
-                                    size="icon"
-                                    aria-label="Delete"
-                                    onClick={() => {
-                                        setProblemToDelete(selectedProblem);
-                                        setIsDeleteDialogOpen(true);
-                                    }}
-                                >
-                                    <Trash2 />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>删除</p>
-                            </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger>
+                            <TooltipTrigger asChild>
                                 <Button
                                     className="cursor-pointer"
                                     variant="outline"
@@ -244,11 +233,31 @@ export default function Sidebar() {
                                 <p>编辑</p>
                             </TooltipContent>
                         </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    className="cursor-pointer"
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Delete"
+                                    onClick={() => {
+                                        setProblemToDelete(selectedProblem);
+                                        setIsDeleteDialogOpen(true);
+                                    }}
+                                >
+                                    <Trash2 className="text-red-500" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>删除</p>
+                            </TooltipContent>
+                        </Tooltip>
                     </>
                 )}
 
                 <Tooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger asChild>
                         <Button
                             className="cursor-pointer"
                             onClick={() => {
@@ -281,7 +290,7 @@ export default function Sidebar() {
                 </Tooltip>
 
                 <Tooltip>
-                    <TooltipTrigger>
+                    <TooltipTrigger asChild>
                         <Button
                             className="cursor-pointer"
                             variant="outline"
@@ -292,34 +301,31 @@ export default function Sidebar() {
                         >
                             <Upload />
                         </Button>
-
-                        <input
-                            id="import-problems"
-                            type="file"
-                            accept=".json"
-                            onChange={(e) => {
-                                const file = (e.target as HTMLInputElement).files?.[0];
-                                if (!file) return;
-                                const reader = new FileReader();
-                                reader.onload = (ev) => {
-                                    try {
-                                        const data = JSON.parse(ev.target?.result as string);
-                                        useTangramStore
-                                            .getState()
-                                            .importProblemsData(data as any[]);
-                                        const st = useTangramStore.getState();
-                                        toast.success(`成功导入 ${st.problems.length} 个题目`);
-                                    } catch (err) {
-                                        console.error('导入失败', err);
-                                        toast.error('导入失败，请确保文件有效');
-                                    }
-                                };
-                                reader.readAsText(file);
-                                (e.target as HTMLInputElement).value = '';
-                            }}
-                            className="hidden"
-                        />
                     </TooltipTrigger>
+                    <input
+                        id="import-problems"
+                        type="file"
+                        accept=".json"
+                        onChange={(e) => {
+                            const file = (e.target as HTMLInputElement).files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                                try {
+                                    const data = JSON.parse(ev.target?.result as string);
+                                    useTangramStore.getState().importProblemsData(data as any[]);
+                                    const st = useTangramStore.getState();
+                                    toast.success(`成功导入 ${st.problems.length} 个题目`);
+                                } catch (err) {
+                                    console.error('导入失败', err);
+                                    toast.error('导入失败，请确保文件有效');
+                                }
+                            };
+                            reader.readAsText(file);
+                            (e.target as HTMLInputElement).value = '';
+                        }}
+                        className="hidden"
+                    />
                     <TooltipContent>
                         <p>上传</p>
                     </TooltipContent>

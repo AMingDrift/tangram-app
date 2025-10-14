@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
+import { useShallow } from 'zustand/shallow';
 
 import { alignCenter, defaultTangram, GRID_CELL } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
@@ -9,11 +10,17 @@ import CanvasStage from './CanvasStage';
 import Sidebar from './Sidebar';
 
 export default function TangramCanvasApp() {
-    const setSize = useTangramStore(
-        (s: any) => s.setSize as (sz: { width: number; height: number }) => void,
-    );
-    const setPieces = useTangramStore((s: any) => s.setPieces as (p: any[]) => void);
-    const setOffsetTarget = useTangramStore((s: any) => s.setOffsetTarget as (t: any[]) => void);
+    const { pieces, problemTargets, setPieces, setSize, setOffsetTarget, selectedProblem } =
+        useTangramStore(
+            useShallow((state) => ({
+                pieces: state.pieces,
+                problemTargets: state.problemTargets,
+                setPieces: state.setPieces,
+                setSize: state.setSize,
+                setOffsetTarget: state.setOffsetTarget,
+                selectedProblem: state.selectedProblem,
+            })),
+        );
     const SIDEBAR_WIDTH = 260;
 
     useEffect(() => {
@@ -58,10 +65,6 @@ export default function TangramCanvasApp() {
         return () => window.removeEventListener('resize', handleResize);
     }, [setSize, setPieces, setOffsetTarget]);
 
-    // ensure initial pieces are present in store once size is known
-    const pieces = useTangramStore((s: any) => s.pieces as any[]);
-    const selectedProblem = useTangramStore((s: any) => s.selectedProblem as number);
-    const problemTargets = useTangramStore((s: any) => s.problemTargets as Record<number, any[]>);
     useEffect(() => {
         if ((pieces?.length || 0) === 0 && typeof window !== 'undefined') {
             const st = useTangramStore.getState();
