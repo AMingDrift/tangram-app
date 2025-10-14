@@ -48,6 +48,9 @@ interface TangramState {
     selectedProblem: string;
     creating: boolean;
     coverage: number;
+    // snapping settings (transient)
+    snapEnabled: boolean;
+    snapToPieces: boolean;
     previousSelectedProblem?: string;
 
     // actions
@@ -63,6 +66,8 @@ interface TangramState {
     setSelectedProblem: (id: string) => void;
     setCreating: (b: boolean) => void;
     setCoverage: (n: number) => void;
+    setSnapEnabled: (b: boolean) => void;
+    setSnapToPieces: (b: boolean) => void;
     // creation flow
     startCreation: () => void;
     cancelCreation: () => void;
@@ -93,6 +98,8 @@ export const useTangramStore = create<TangramState>()(
             selectedProblem: '',
             creating: false,
             coverage: 0,
+            snapEnabled: true,
+            snapToPieces: true,
 
             setSize: (s) => set({ size: s }),
             setPieces: (p) => set({ pieces: p }),
@@ -128,6 +135,8 @@ export const useTangramStore = create<TangramState>()(
             setSelectedProblem: (id) => set({ selectedProblem: id }),
             setCreating: (b) => set({ creating: b }),
             setCoverage: (n) => set({ coverage: n }),
+            setSnapEnabled: (b) => set({ snapEnabled: b }),
+            setSnapToPieces: (b) => set({ snapToPieces: b }),
             // creation flow helpers
             previousSelectedProblem: '',
             startCreation: () =>

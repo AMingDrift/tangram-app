@@ -1,3 +1,5 @@
+import SAT from 'sat';
+
 // 工具函数抽取自原始 TangramCanvas.tsx
 
 export interface Piece {
@@ -10,6 +12,7 @@ export interface Piece {
     placed?: boolean;
     centerX?: number;
     centerY?: number;
+    area?: number; // 新增 area 属性用于存储预计算的面积
 }
 
 export const GRID_CELL = 100;
@@ -336,6 +339,170 @@ export const computeCoverage = (
     return Math.round((coveredPixels / targetPixels) * 100);
 };
 
+// --- 碰撞检测: 基于分离轴定理 (SAT) 的多边形相交检测 ---
+// 返回两个多边形（以世界坐标点数组表示）是否相交
+export const polygonIntersectionSAT = (ptsA: number[], ptsB: number[]) => {
+    const toSATPolygon = (pts: number[]) => {
+        const vertices = [];
+        for (let i = 0; i < pts.length; i += 2) {
+            vertices.push(new SAT.Vector(pts[i], pts[i + 1]));
+        }
+        return new SAT.Polygon(new SAT.Vector(0, 0), vertices);
+    };
+
+    const polyA = toSATPolygon(ptsA);
+    const polyB = toSATPolygon(ptsB);
+    const response = new SAT.Response();
+    return SAT.testPolygonPolygon(polyA, polyB, response);
+};
+
+// 替换面积计算逻辑，手动计算多边形面积
+const calculatePolygonArea = (pts: number[]) => {
+    let area = 0;
+    for (let i = 0; i < pts.length; i += 2) {
+        const x1 = pts[i];
+        const y1 = pts[i + 1];
+        const x2 = pts[(i + 2) % pts.length];
+        const y2 = pts[(i + 3) % pts.length];
+        area += x1 * y2 - y1 * x2;
+    }
+    return Math.abs(area) / 2;
+};
+
+// 计算两个多边形的重叠面积
+const calculateOverlapArea = (ptsA: number[], ptsB: number[]) => {
+    // Helper: 使用 Sutherland-Hodgman 算法裁剪多边形
+    const clipPolygon = (subject: number[], clip: number[]) => {
+        const output = [...subject];
+        for (let i = 0; i < clip.length; i += 2) {
+            const clipAx = clip[i];
+            const clipAy = clip[i + 1];
+            const clipBx = clip[(i + 2) % clip.length];
+            const clipBy = clip[(i + 3) % clip.length];
+
+            const input = [...output];
+            output.length = 0;
+
+            for (let j = 0; j < input.length; j += 2) {
+                const subjAx = input[j];
+                const subjAy = input[j + 1];
+                const subjBx = input[(j + 2) % input.length];
+                const subjBy = input[(j + 3) % input.length];
+
+                const inside = (x: number, y: number) => {
+                    return (clipBx - clipAx) * (y - clipAy) - (clipBy - clipAy) * (x - clipAx) >= 0;
+                };
+
+                const intersection = (
+                    ax: number,
+                    ay: number,
+                    bx: number,
+                    by: number,
+                    cx: number,
+                    cy: number,
+                    dx: number,
+                    dy: number,
+                ) => {
+                    const a1 = by - ay;
+                    const b1 = ax - bx;
+                    const c1 = a1 * ax + b1 * ay;
+                    const a2 = dy - cy;
+                    const b2 = cx - dx;
+                    const c2 = a2 * cx + b2 * cy;
+                    const det = a1 * b2 - a2 * b1;
+                    if (Math.abs(det) < 1e-10) return null; // 平行
+                    const x = (b2 * c1 - b1 * c2) / det;
+                    const y = (a1 * c2 - a2 * c1) / det;
+                    return { x, y };
+                };
+
+                const startInside = inside(subjAx, subjAy);
+                const endInside = inside(subjBx, subjBy);
+
+                if (endInside) {
+                    if (!startInside) {
+                        const inter = intersection(
+                            subjAx,
+                            subjAy,
+                            subjBx,
+                            subjBy,
+                            clipAx,
+                            clipAy,
+                            clipBx,
+                            clipBy,
+                        );
+                        if (inter) output.push(inter.x, inter.y);
+                    }
+                    output.push(subjBx, subjBy);
+                } else if (startInside) {
+                    const inter = intersection(
+                        subjAx,
+                        subjAy,
+                        subjBx,
+                        subjBy,
+                        clipAx,
+                        clipAy,
+                        clipBx,
+                        clipBy,
+                    );
+                    if (inter) output.push(inter.x, inter.y);
+                }
+            }
+        }
+        return output;
+    };
+
+    const intersectionPolygon = clipPolygon(ptsA, ptsB);
+
+    // Helper: 使用鞋带公式计算多边形面积
+    const calculatePolygonArea = (pts: number[]) => {
+        let area = 0;
+        for (let i = 0; i < pts.length; i += 2) {
+            const x1 = pts[i];
+            const y1 = pts[i + 1];
+            const x2 = pts[(i + 2) % pts.length];
+            const y2 = pts[(i + 3) % pts.length];
+            area += x1 * y2 - y1 * x2;
+        }
+        return Math.abs(area) / 2;
+    };
+
+    return calculatePolygonArea(intersectionPolygon);
+};
+
+// 判断是否应该阻止碰撞（用于拖拽时检测）。
+// 当碰撞重叠小于 allowThreshold 时，阻止移动；否则允许强行穿过。
+export const shouldBlockCollision = (
+    movingPts: number[],
+    otherPts: number[],
+    movingArea: number,
+    allowThreshold = 0.15,
+) => {
+    const intersect = polygonIntersectionSAT(movingPts, otherPts);
+    console.log('polygonIntersectionSAT', intersect);
+    if (!intersect) return false;
+
+    const overlapArea = calculateOverlapArea(movingPts, otherPts);
+    console.log('overlapArea, movingArea', overlapArea, movingArea);
+
+    return overlapArea / movingArea < allowThreshold;
+};
+
+// 给定一个 piece (world transform 已包含在 points 中)，检查是否与其他 pieces 产生阻止性的碰撞
+export const checkCollisionsForPiece = (
+    piecePts: number[],
+    otherPiecesPts: number[][],
+    movingArea: number,
+    allowThreshold = 0.15,
+) => {
+    for (const op of otherPiecesPts) {
+        if (shouldBlockCollision(piecePts, op, movingArea, allowThreshold)) {
+            return true;
+        }
+    }
+    return false;
+};
+
 // default tangram layout generator, returns Piece[] scaled by GRID_CELL
 export const defaultTangram = (size: { width: number; height: number }): Piece[] => {
     const allPoints = [
@@ -423,6 +590,7 @@ export const defaultTangram = (size: { width: number; height: number }): Piece[]
         points: p.points.map((pi) => pi * GRID_CELL),
         centerX: (p as any).centerX * GRID_CELL,
         centerY: (p as any).centerY * GRID_CELL,
+        area: calculatePolygonArea(p.points.map((pi) => pi * GRID_CELL)), // 预计算面积
     }));
 
     const [offsetX, offsetY] = alignCenter(

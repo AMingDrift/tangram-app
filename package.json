@@ -3,7 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "dev": "rimraf -rf .next && next dev",
+        "dev": "rimraf -rf .next && next dev --turbopack",
         "build": "next build",
         "start": "next start",
         "lint": "next lint",
@@ -26,6 +26,7 @@
         "react": "19.0.0",
         "react-dom": "19.0.0",
         "react-konva": "^19.0.2",
+        "sat": "^0.9.0",
         "sonner": "^2.0.7",
         "tailwind-merge": "^3.3.1",
         "zustand": "^5.0.8"
@@ -40,6 +41,8 @@
         "@types/node": "^20",
         "@types/react": "^19",
         "@types/react-dom": "^19",
+        "@types/sat": "^0.0.35",
+        "eruda": "^3.4.3",
         "eslint": "^9.31.0",
         "eslint-config-next": "15.4.3",
         "eslint-config-prettier": "^10.1.8",
