@@ -1,3 +1,4 @@
+import { del, get, set } from 'idb-keyval';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -10,6 +11,8 @@ import {
     getTransformedPoints,
     GRID_CELL,
 } from '@/lib/tangramUtils';
+
+import { tangramIDBStore } from './tangramIDBStore';
 
 // NOTE: This store file is a minimal skeleton to be used as starting point.
 // It requires zustand to be installed. We'll keep implementation small and explicit.
@@ -71,8 +74,6 @@ interface TangramState {
 export type { TangramState };
 
 export const useTangramStore = create<TangramState>()(
-    // persist will be helpful for problems data; here we persist selected slices
-    // NOTE: we use `any` for set/get param types to avoid TS errors before zustand types are available.
     persist(
         (set: any, get: any) =>
             ({
@@ -293,6 +294,18 @@ export const useTangramStore = create<TangramState>()(
                 problemTargets: state.problemTargets,
                 thumbnails: state.thumbnails,
             }),
+            storage: {
+                getItem: async (name: string) => {
+                    const value = await get(name, tangramIDBStore);
+                    return value === undefined ? null : value;
+                },
+                setItem: async (name: string, value: any) => {
+                    await set(name, value, tangramIDBStore);
+                },
+                removeItem: async (name: string) => {
+                    await del(name, tangramIDBStore);
+                },
+            },
         },
     ),
 );
