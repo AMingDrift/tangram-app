@@ -99,6 +99,58 @@ export const getEdgesFromPoints = (pts: number[]) => {
     return edges;
 };
 
+// Place a set of pieces into the right area (right 40% of canvas) and center them there.
+// Parameters:
+// - pieces: array of Piece (local points & local centers defined)
+// - canvasSize: { width, height } in pixels
+// - stageTransform: optional { x, y, scale } representing current stage.position and stage.scaleX
+// If stageTransform is provided, we map the screen center into world coordinates; otherwise we perform a best-effort placement in pixel space.
+export const placePiecesInRightArea = (
+    pieces: Piece[],
+    canvasSize: { width: number; height: number },
+    stageTransform?: { x: number; y: number; scale: number },
+) => {
+    if (!pieces || pieces.length === 0) return pieces.map((p) => ({ ...p }));
+
+    // compute world-space bbox of pieces (using getTransformedPoints)
+    let pminX = Infinity;
+    let pminY = Infinity;
+    let pmaxX = -Infinity;
+    let pmaxY = -Infinity;
+    for (const op of pieces) {
+        const pts = getTransformedPoints(op);
+        for (let i = 0; i < pts.length; i += 2) {
+            const x = pts[i];
+            const y = pts[i + 1];
+            if (x < pminX) pminX = x;
+            if (y < pminY) pminY = y;
+            if (x > pmaxX) pmaxX = x;
+            if (y > pmaxY) pmaxY = y;
+        }
+    }
+    const piecesCenterX = (pminX + pmaxX) / 2;
+    const piecesCenterY = (pminY + pmaxY) / 2;
+
+    const leftAreaW = (canvasSize.width || 0) * 0.6;
+    const rightAreaLeft = leftAreaW;
+    const rightAreaW = Math.max(0, (canvasSize.width || 0) - rightAreaLeft);
+    const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
+    const rightCenterScreenY = (canvasSize.height || 0) / 2;
+
+    // map screen center back to world coordinates if stageTransform available
+    let desiredWorldCenterX = rightCenterScreenX;
+    let desiredWorldCenterY = rightCenterScreenY;
+    if (stageTransform && typeof stageTransform.scale === 'number' && stageTransform.scale !== 0) {
+        desiredWorldCenterX = (rightCenterScreenX - (stageTransform.x || 0)) / stageTransform.scale;
+        desiredWorldCenterY = (rightCenterScreenY - (stageTransform.y || 0)) / stageTransform.scale;
+    }
+
+    const offsetX = desiredWorldCenterX - piecesCenterX;
+    const offsetY = desiredWorldCenterY - piecesCenterY;
+
+    return pieces.map((p) => ({ ...p, x: (p.x || 0) + offsetX, y: (p.y || 0) + offsetY }));
+};
+
 export const angleDiff = (a: number, b: number) => {
     let d = Math.abs(((a - b) % 360) + 360) % 360;
     if (d > 180) d = 360 - d;
@@ -502,7 +554,7 @@ export const checkCollisionsForPiece = (
 };
 
 // default tangram layout generator, returns Piece[] scaled by GRID_CELL
-export const defaultTangram = (size: { width: number; height: number }): Piece[] => {
+export const defaultTangram = (): Piece[] => {
     const allPoints = [
         {
             id: 1,
@@ -588,17 +640,9 @@ export const defaultTangram = (size: { width: number; height: number }): Piece[]
         points: p.points.map((pi) => pi * GRID_CELL),
         centerX: (p as any).centerX * GRID_CELL,
         centerY: (p as any).centerY * GRID_CELL,
-        area: calculatePolygonArea(p.points.map((pi) => pi * GRID_CELL)), // 预计算面积
+        // precompute area at GRID_CELL scale (do not depend on later 'scale' var)
+        area: calculatePolygonArea(p.points.map((pi) => pi * GRID_CELL) as number[]),
     }));
 
-    const [offsetX, offsetY] = alignCenter(
-        allPoints.flatMap((p) => getTransformedPoints(p)),
-        { ...size, width: size.width * 0.5 },
-    );
-
-    return allPoints.map((p) => ({
-        ...p,
-        x: p.x + offsetX + size.width * 0.5,
-        y: p.y + offsetY,
-    }));
+    return allPoints;
 };

@@ -1,79 +1,79 @@
 name: Create Portable Release
 
 on:
-  workflow_dispatch:
+    workflow_dispatch:
 
 jobs:
-  create-portable-release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    create-portable-release:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
 
-      - name: Install pnpm
-        run: npm install -g pnpm@10.17.1
+            - name: Install pnpm
+              run: npm install -g pnpm@10.17.1
 
-      - name: Install dependencies
-        run: pnpm install
+            - name: Install dependencies
+              run: pnpm install
 
-      - name: Build Next.js app
-        run: pnpm build
+            - name: Build Next.js app
+              run: pnpm build
 
-      # Node.js 包已作为此仓库的 Release 资产上传
-      - name: Download Node.js portable package from this repo
-        uses: robinraju/release-downloader@v1.8
-        with:
-          repository: ${{ github.repository }}
-          latest: true
-          fileName: node-v22.20.0-win-x64.zip
-          out-file-path: .
-        continue-on-error: false
+            # Node.js 包已作为此仓库的 Release 资产上传
+            - name: Download Node.js portable package from this repo
+              uses: robinraju/release-downloader@v1.8
+              with:
+                  repository: ${{ github.repository }}
+                  latest: true
+                  fileName: node-v22.20.0-win-x64.zip
+                  out-file-path: .
+              continue-on-error: false
 
-      - name: Extract Node.js
-        run: |
-          unzip node-v22.20.0-win-x64.zip
-          mv node-v22.20.0-win-x64 artifacts/nodejs
+            - name: Extract Node.js
+              run: |
+                  unzip node-v22.20.0-win-x64.zip
+                  mv node-v22.20.0-win-x64 artifacts/nodejs
 
-      - name: Fix permissions for Node.js binaries
-        run: |
-          chmod +x artifacts/nodejs/node.exe
-          chmod +x artifacts/nodejs/npm
-          chmod +x artifacts/nodejs/npx
+            - name: Fix permissions for Node.js binaries
+              run: |
+                  chmod +x artifacts/nodejs/node.exe
+                  chmod +x artifacts/nodejs/npm
+                  chmod +x artifacts/nodejs/npx
 
-      - name: Install serve globally in portable Node.js
-        run: |
-          cd artifacts/nodejs
-          npm init -y
-          npm install --global-style --prefix=. serve
-          cd ../..
+            - name: Install serve globally in portable Node.js
+              run: |
+                  cd artifacts/nodejs
+                  npm init -y
+                  npm install --global-style --prefix=. serve
+                  cd ../..
 
-      - name: Move out directory to artifacts
-        run: |
-          mv out artifacts/out
+            - name: Move out directory to artifacts
+              run: |
+                  mv out artifacts/out
 
-      - name: Package portable release
-        run: |
-          mv artifacts tangram-web-server
+            - name: Package portable release
+              run: |
+                  mv artifacts tangram-web-server
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tangram-web-server
-          path: tangram-web-server
+            - name: Upload Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tangram-web-server
+                  path: tangram-web-server
 
-      # 如果此工作流由 Release 事件触发，则上传到 Release
-      - name: Upload Release Asset
-        if: github.event_name == 'release'
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./tangram-web-server
-          asset_name: tangram-web-server.zip
-          asset_content_type: application/zip
+            # 如果此工作流由 Release 事件触发，则上传到 Release
+            - name: Upload Release Asset
+              if: github.event_name == 'release'
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  upload_url: ${{ github.event.release.upload_url }}
+                  asset_path: ./tangram-web-server
+                  asset_name: tangram-web-server.zip
+                  asset_content_type: application/zip

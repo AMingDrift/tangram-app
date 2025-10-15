@@ -10,7 +10,6 @@ import {
     defaultTangram,
     generateThumbnail,
     getTransformedPoints,
-    GRID_CELL,
 } from '@/lib/tangramUtils';
 
 import { tangramIDBStore } from './tangramIDBStore';
@@ -31,7 +30,11 @@ export interface ProblemTarget {
 export interface ProblemData {
     id: string;
     title: string;
-    targets: ProblemTarget[];
+    // persisted/imported/exported target polygons in pixel coordinates
+    // kept under the key `targetPieces` in the external schema; older imports with `targets` are also supported
+    targetPieces?: ProblemTarget[];
+    // legacy key (some imports/exports used `targets`); kept optional for compatibility
+    targets?: ProblemTarget[];
     thumbnail: string;
     answers?: { id?: string; pieces: Piece[]; thumbnail: string }[];
 }
@@ -39,7 +42,7 @@ export interface ProblemData {
 interface TangramState {
     size: { width: number; height: number };
     pieces: Piece[];
-    offsetTarget: { id: number; points: number[] }[];
+    targetPieces: { id: number; points: number[] }[];
     problems: Problem[];
     // transient drafts for each problem id (not persisted)
     drafts: Record<string, Piece[]>;
@@ -56,7 +59,7 @@ interface TangramState {
     // actions
     setSize: (s: { width: number; height: number }) => void;
     setPieces: (p: Piece[]) => void;
-    setOffsetTarget: (t: { id: number; points: number[] }[]) => void;
+    setTargetPieces: (t: { id: number; points: number[] }[]) => void;
     updatePiece: (id: number, patch: Partial<Piece>) => void;
     setProblems: (p: Problem[]) => void;
     setDraftForProblem: (id: string, pieces: Piece[] | undefined) => void;
@@ -90,8 +93,8 @@ export const useTangramStore = create<TangramState>()(
             size: { width: 0, height: 0 },
             pieces: [],
             drafts: {},
-            // offsetTarget stores pixel-space target polygons computed from problemTargets
-            offsetTarget: [],
+            // targetPieces stores pixel-space target polygons computed from problemTargets
+            targetPieces: [],
             problems: [],
             problemTargets: {},
             thumbnails: {},
@@ -116,15 +119,15 @@ export const useTangramStore = create<TangramState>()(
                             drafts[id] = (pieces || []).map((x) => ({ ...x }));
                         }
                     }
-                    return { drafts } as any;
+                    return { drafts };
                 }),
             clearDraftForProblem: (id) =>
                 set((state) => {
                     const drafts = { ...(state.drafts || {}) };
                     delete drafts[id];
-                    return { drafts } as any;
+                    return { drafts };
                 }),
-            setOffsetTarget: (t) => set({ offsetTarget: t }),
+            setTargetPieces: (t) => set({ targetPieces: t }),
             updatePiece: (id, patch) =>
                 set((state) => ({
                     pieces: state.pieces.map((x) => (x.id === id ? { ...x, ...patch } : x)),
@@ -140,9 +143,9 @@ export const useTangramStore = create<TangramState>()(
             // creation flow helpers
             previousSelectedProblem: '',
             startCreation: () =>
-                set((state) => {
-                    const prev = state.selectedProblem ?? '';
-                    const pieces = defaultTangram(state.size);
+                set((_state) => {
+                    const prev = _state.selectedProblem ?? '';
+                    const pieces = defaultTangram();
                     return {
                         previousSelectedProblem: prev,
                         creating: true,
@@ -151,9 +154,9 @@ export const useTangramStore = create<TangramState>()(
                     };
                 }),
             cancelCreation: () =>
-                set((state) => {
-                    const prev = state.previousSelectedProblem ?? '';
-                    const pieces = defaultTangram(state.size);
+                set((_state) => {
+                    const prev = _state.previousSelectedProblem ?? '';
+                    const pieces = defaultTangram();
                     return {
                         creating: false,
                         pieces,
@@ -175,15 +178,15 @@ export const useTangramStore = create<TangramState>()(
                 // normalize to grid coords for storage
                 const newTargetsGrid = newTargetsPixels.map((t) => ({
                     id: t.id,
-                    points: t.points.map((v) => Math.round((v / GRID_CELL) * 1000) / 1000),
+                    points: t.points,
                 }));
 
                 const newId = get().addProblemWithTargets(title || undefined, newTargetsGrid);
 
                 // reset pieces to default and mark creation finished
-                set((state) => ({
+                set((_state) => ({
                     creating: false,
-                    pieces: defaultTangram(state.size),
+                    pieces: defaultTangram(),
                     selectedProblem: newId,
                     previousSelectedProblem: '',
                 }));
@@ -191,7 +194,7 @@ export const useTangramStore = create<TangramState>()(
                 // compute coverage using pixel targets
                 const pixelTargets = newTargetsGrid.map((t) => ({
                     id: t.id,
-                    points: t.points.map((v) => v * GRID_CELL),
+                    points: t.points,
                 }));
                 const pct = computeCoverage(pieces, pixelTargets, 200, 160);
                 set({ coverage: pct });
@@ -223,10 +226,11 @@ export const useTangramStore = create<TangramState>()(
                     const newProblemTargets: Record<string, ProblemTarget[]> = {};
                     const newThumbnails: Record<string, string> = {};
                     data.forEach((d) => {
-                        newProblemTargets[String(d.id)] = d.targets || [];
+                        // support both new `targetPieces` key or legacy `targets`
+                        newProblemTargets[String(d.id)] = d.targetPieces || d.targets || [];
                         newThumbnails[String(d.id)] = d.thumbnail || '';
                     });
-                    const pieces = defaultTangram(state.size);
+                    const pieces = defaultTangram();
                     return {
                         problems: newProblems,
                         problemTargets: newProblemTargets,
@@ -240,7 +244,8 @@ export const useTangramStore = create<TangramState>()(
                 const problemsData: ProblemData[] = st.problems.map((p) => ({
                     id: p.id,
                     title: p.title,
-                    targets: st.problemTargets[p.id] || [],
+                    // export under `targetPieces` (pixel coords)
+                    targetPieces: st.problemTargets[p.id] || [],
                     thumbnail: st.thumbnails[p.id] || '',
                     answers: (p.answers || []).map((a: any) => ({
                         id: a.id || '',
@@ -263,7 +268,7 @@ export const useTangramStore = create<TangramState>()(
                 // generate thumbnail (convert grid coords to pixels)
                 const pixelForThumb = targetsGrid.map((t) => ({
                     id: t.id,
-                    points: t.points.map((v) => v * GRID_CELL),
+                    points: t.points,
                 }));
                 const url = generateThumbnail(pixelForThumb, 160, 120);
                 set((state) => ({
@@ -316,7 +321,7 @@ export const useTangramStore = create<TangramState>()(
                         const t = st.problemTargets[pb.id] || [];
                         const pixel = t.map((p) => ({
                             id: p.id,
-                            points: p.points.map((v) => v * GRID_CELL),
+                            points: p.points,
                         }));
                         map[pb.id] = generateThumbnail(pixel, width, height);
                     }

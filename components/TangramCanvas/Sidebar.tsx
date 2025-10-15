@@ -42,7 +42,7 @@ import {
     defaultTangram,
     generateThumbnail,
     getTransformedPoints,
-    GRID_CELL,
+    placePiecesInRightArea,
 } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
@@ -55,8 +55,7 @@ export default function Sidebar() {
 
     const {
         problems,
-        size,
-        offsetTarget,
+        targetPieces,
         thumbnails,
         drafts,
         creating,
@@ -81,7 +80,7 @@ export default function Sidebar() {
         useShallow((state) => ({
             problems: state.problems,
             size: state.size,
-            offsetTarget: state.offsetTarget,
+            targetPieces: state.targetPieces,
             thumbnails: state.thumbnails,
             drafts: state.drafts,
             creating: state.creating,
@@ -390,9 +389,7 @@ export default function Sidebar() {
                                             const thumbnail = generateThumbnail(
                                                 pieces.map((p) => ({
                                                     id: p.id,
-                                                    points: getTransformedPoints(p).map(
-                                                        (v) => v * GRID_CELL,
-                                                    ),
+                                                    points: getTransformedPoints(p),
                                                     color: p.color,
                                                 })),
                                                 160,
@@ -702,6 +699,8 @@ export default function Sidebar() {
                         key={pb.id}
                         onClick={() => {
                             if (creating) return;
+                            // if clicking the already-selected problem, do nothing
+                            if (pb.id === selectedProblem) return;
                             try {
                                 // Before switching, save current pieces as transient draft in store
                                 if (selectedProblem && selectedProblem !== '') {
@@ -721,16 +720,82 @@ export default function Sidebar() {
                                 setSelectedProblem(pb.id);
 
                                 // initialize pieces using transient draft from store if available, otherwise defaultTangram
-                                const initPieces =
-                                    Array.isArray(drafts?.[pb.id]) && drafts[pb.id].length > 0
-                                        ? drafts[pb.id]
-                                        : defaultTangram(size);
-                                setPieces(initPieces);
+                                const hasDraft =
+                                    Array.isArray(drafts?.[pb.id]) && drafts[pb.id].length > 0;
+                                let finalPieces: Piece[] = [];
+                                if (hasDraft) {
+                                    // draft already stores world coordinates -> use as-is
+                                    finalPieces = drafts[pb.id];
+                                    setPieces(finalPieces);
+                                } else {
+                                    // use defaultTangram but place it into the right 40% area (centered)
+                                    try {
+                                        const originPieces = defaultTangram();
+                                        // compute bbox/center of origin pieces
+                                        let pminX = Infinity;
+                                        let pminY = Infinity;
+                                        let pmaxX = -Infinity;
+                                        let pmaxY = -Infinity;
+                                        for (const op of originPieces) {
+                                            const pts = getTransformedPoints(op);
+                                            for (let i = 0; i < pts.length; i += 2) {
+                                                const x = pts[i];
+                                                const y = pts[i + 1];
+                                                if (x < pminX) pminX = x;
+                                                if (y < pminY) pminY = y;
+                                                if (x > pmaxX) pmaxX = x;
+                                                if (y > pmaxY) pmaxY = y;
+                                            }
+                                        }
+                                        const piecesCenterX = (pminX + pmaxX) / 2;
+                                        const piecesCenterY = (pminY + pmaxY) / 2;
+
+                                        const totalWidth =
+                                            useTangramStore.getState().size.width || 0;
+                                        const leftAreaW = totalWidth * 0.6;
+                                        const rightAreaLeft = leftAreaW;
+                                        const rightAreaW = (totalWidth || 0) - rightAreaLeft;
+                                        const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
+                                        const rightCenterScreenY =
+                                            (useTangramStore.getState().size.height || 0) / 2;
+
+                                        // Need to take current stage transform into account; attempt to read stage from DOM via global store
+                                        // If stage transform is not available here, fall back to simple translation to right area center
+                                        // We'll try to approximate by assuming stage scale/position set earlier in CanvasStage; if not available, just offset by rightCenterScreenX
+                                        // Use a conservative approach: place origin pieces centered near right area in pixel space by shifting their x by rightCenterScreenX - piecesCenterX
+                                        const offsetX = rightCenterScreenX - piecesCenterX;
+                                        const offsetY = rightCenterScreenY - piecesCenterY;
+
+                                        const piecesForRight = originPieces.map((p) => ({
+                                            ...p,
+                                            x: (p.x || 0) + offsetX,
+                                            y: (p.y || 0) + offsetY,
+                                        }));
+                                        finalPieces = piecesForRight;
+                                        setPieces(piecesForRight);
+                                    } catch {
+                                        finalPieces = defaultTangram();
+                                        // place using helper (best-effort using store size)
+                                        try {
+                                            finalPieces = placePiecesInRightArea(
+                                                finalPieces,
+                                                useTangramStore.getState().size,
+                                            );
+                                        } catch {
+                                            // ignore
+                                        }
+                                        setPieces(finalPieces);
+                                    }
+                                }
 
                                 // compute coverage using offsetTarget if available
                                 const targets =
-                                    offsetTarget && offsetTarget.length > 0 ? offsetTarget : [];
-                                const pct = computeCoverage(initPieces, targets, 200, 160);
+                                    targetPieces && targetPieces.length > 0 ? targetPieces : [];
+                                // if finalPieces not assigned (shouldn't happen) fall back to store pieces
+                                if (!finalPieces || finalPieces.length === 0) {
+                                    finalPieces = useTangramStore.getState().pieces || [];
+                                }
+                                const pct = computeCoverage(finalPieces, targets, 200, 160);
                                 setCoverage(pct);
                             } catch (err) {
                                 console.error('切换题目失败', err);

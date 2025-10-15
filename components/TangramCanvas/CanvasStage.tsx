@@ -1,6 +1,6 @@
 import type Konva from 'konva';
 
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Group, Layer, Line, Stage, Text } from 'react-konva';
 import { useShallow } from 'zustand/shallow';
 
@@ -10,29 +10,33 @@ import {
     calculateOverlapArea,
     checkCollisionsForPiece,
     computeCoverage,
+    defaultTangram,
     findSnapForPiece,
     getEdgesFromPoints,
     getTransformedPoints,
+    placePiecesInRightArea,
 } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
 export default function CanvasStage() {
     const {
         pieces,
+        setPieces,
         size,
         updatePiece,
         bringPieceToTop,
         setCoverage,
-        offsetTarget,
+        targetPieces,
         selectedProblemTargets,
     } = useTangramStore(
         useShallow((state) => ({
             pieces: state.pieces,
+            setPieces: state.setPieces,
             size: state.size,
             updatePiece: state.updatePiece,
             bringPieceToTop: state.bringPieceToTop,
             setCoverage: state.setCoverage,
-            offsetTarget: state.offsetTarget,
+            targetPieces: state.targetPieces,
             selectedProblemTargets: state.problemTargets[state.selectedProblem] ?? null,
         })),
     );
@@ -54,9 +58,22 @@ export default function CanvasStage() {
             : 16;
     const REM_BASE = 16;
     const scale = rootFs / REM_BASE;
+    // Adjust text scale separately to avoid excessive enlargement on very large screens
+    // Allow modest growth for large displays but clamp to reasonable bounds.
+    const textScale = (() => {
+        const base = scale;
+        const w = size.width || 0;
+        // extra growth for very large screens (>= 1920px), up to +0.5
+        const screenExtra = Math.min(Math.max((w - 1920) / 1920, 0), 0.5);
+        const maxScale = 1.2 + screenExtra; // allow slightly larger than 1.2 on big screens
+        const minScale = 0.75;
+        return Math.max(minScale, Math.min(base, maxScale));
+    })();
+
+    // offsetTarget contains real pixel coordinates for the target shapes (do not transform them here)
 
     // 吸边常量（以 px 为基准，但随 root font-size 缩放）
-    const SNAP_DIST = 20 * scale; // 可调整
+    const SNAP_DIST = 20; // 可调整
     // 吸边时允许的最大覆盖比（当 candidate 的总覆盖 / piece.area <= SNAP_ALLOW_THRESHOLD 时，仍允许吸附）
     const SNAP_ALLOW_THRESHOLD = 0.01; // 1% of piece area
     // 接触容差（随缩放）
@@ -384,6 +401,136 @@ export default function CanvasStage() {
         lastPanPosition.current = null;
     };
 
+    // Fit targetPieces into left 60% area by adjusting stage scale and position.
+    // Display size is chosen as the larger of:
+    //  - 66% of canvas height, and
+    //  - 66% of left-area width (left area = 60% of canvas width)
+    useEffect(() => {
+        const stage = stageRef.current;
+        if (!stage) return;
+        const tp = targetPieces || [];
+        if (!tp || tp.length === 0) return;
+        // compute bbox in pixel coordinates
+        const allPts = tp.flatMap((t: any) => t.points || []);
+        if (allPts.length < 2) return;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i < allPts.length; i += 2) {
+            const x = allPts[i];
+            const y = allPts[i + 1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+
+        const bboxW = Math.max(1, maxX - minX);
+        const bboxH = Math.max(1, maxY - minY);
+
+        const leftAreaW = (size.width || 0) * 0.6;
+        const leftAreaH = size.height || bboxH;
+
+        // desired display sizes
+        const desiredByHeight = (size.height || 0) * 0.8; // 80% of page height
+        const desiredByLeftWidth = leftAreaW * 0.8; // 80% of left-area width
+
+        // choose the larger target display dimension and compute uniform scale
+        const targetDisplay = Math.max(desiredByHeight, desiredByLeftWidth);
+
+        // scale needed so that larger bbox dimension maps to targetDisplay
+        const scaleForW = targetDisplay / bboxW;
+        const scaleForH = targetDisplay / bboxH;
+        // choose the smaller scale so that both dimensions fit into targetDisplay box
+        const chosenScale = Math.min(scaleForW, scaleForH);
+        const finalScale = Math.max(0.0001, chosenScale * 0.95);
+
+        // compute centers
+        const bboxCenterX = (minX + maxX) / 2;
+        const bboxCenterY = (minY + maxY) / 2;
+        const leftCenterX = leftAreaW / 2;
+        const centerY = (leftAreaH || 0) / 2;
+
+        const stageX = leftCenterX - bboxCenterX * finalScale;
+        const stageY = centerY - bboxCenterY * finalScale;
+
+        // compute initial pieces layout for the right 40% area and center them there
+        const originPieces = defaultTangram();
+
+        // If a transient draft exists for the currently selected problem, do NOT overwrite it.
+        // This ensures that when Sidebar restores a saved draft after switching back to a
+        // problem, CanvasStage's initialization won't immediately overwrite the draft.
+        try {
+            const st = useTangramStore.getState();
+            const sel = st.selectedProblem;
+            const draftForSel = sel ? st.drafts?.[sel] : null;
+            if (sel && draftForSel && Array.isArray(draftForSel) && draftForSel.length > 0) {
+                // there's a draft for the selected problem -> skip initial placement
+            } else {
+                // compute bbox / center of origin pieces in world coordinates
+                let pminX = Infinity;
+                let pminY = Infinity;
+                let pmaxX = -Infinity;
+                let pmaxY = -Infinity;
+                for (const op of originPieces) {
+                    const pts = getTransformedPoints(op);
+                    for (let i = 0; i < pts.length; i += 2) {
+                        const x = pts[i];
+                        const y = pts[i + 1];
+                        if (x < pminX) pminX = x;
+                        if (y < pminY) pminY = y;
+                        if (x > pmaxX) pmaxX = x;
+                        if (y > pmaxY) pmaxY = y;
+                    }
+                }
+                const piecesCenterX = (pminX + pmaxX) / 2;
+                const piecesCenterY = (pminY + pmaxY) / 2;
+
+                // right area screen center (screen coordinates)
+                const rightAreaLeft = leftAreaW;
+                const rightAreaW = (size.width || 0) - rightAreaLeft;
+                const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
+                const rightCenterScreenY = centerY;
+
+                // map screen center back to world coordinates using stage transform
+                const desiredWorldCenterX = (rightCenterScreenX - stageX) / finalScale;
+                const desiredWorldCenterY = (rightCenterScreenY - stageY) / finalScale;
+
+                const offsetX = desiredWorldCenterX - piecesCenterX;
+                const offsetY = desiredWorldCenterY - piecesCenterY;
+
+                // prefer using helper that centralizes placement logic
+                try {
+                    const placed = placePiecesInRightArea(
+                        originPieces,
+                        {
+                            width: size.width || 0,
+                            height: size.height || 0,
+                        },
+                        { x: stageX, y: stageY, scale: finalScale },
+                    );
+                    setPieces(placed);
+                } catch {
+                    const piecesForRight = originPieces.map((p) => ({
+                        ...p,
+                        x: (p.x || 0) + offsetX,
+                        y: (p.y || 0) + offsetY,
+                    }));
+                    setPieces(piecesForRight);
+                }
+            }
+        } catch {
+            // defensive: if store access fails for some reason, fall back to setting pieces
+            const piecesForRight = originPieces.map((p) => p);
+            setPieces(piecesForRight);
+        }
+
+        stage.scale({ x: finalScale, y: finalScale });
+        stage.position({ x: stageX, y: stageY });
+        stage.batchDraw();
+    }, [targetPieces]);
+
     return (
         <>
             {size.width > 0 && (
@@ -402,11 +549,12 @@ export default function CanvasStage() {
                     onMouseLeave={handleMouseUp}
                 >
                     <Layer>
-                        {/* Render central target shapes */}
-                        {offsetTarget.map((p: any) => (
+                        {/* Render targetPieces directly (they store real pixel positions) */}
+                        {targetPieces.map((p: any) => (
                             <Line key={p.id} points={p.points} fill="black" closed opacity={0.25} />
                         ))}
 
+                        {/* Render pieces directly; pieces.x/y should already be real pixel positions */}
                         {pieces.map((p: Piece) => (
                             <Group
                                 ref={(n) => {
@@ -674,7 +822,10 @@ export default function CanvasStage() {
                                                         const ex = edge.bx - edge.ax;
                                                         const ey = edge.by - edge.ay;
                                                         const len = Math.hypot(ex, ey) || 1;
-                                                        const dir = { x: ex / len, y: ey / len };
+                                                        const dir = {
+                                                            x: ex / len,
+                                                            y: ey / len,
+                                                        };
 
                                                         // desired delta from foundPos to target
                                                         const dx = targetPos.x - foundPos.x;
@@ -742,7 +893,11 @@ export default function CanvasStage() {
                                     }
                                 }}
                                 onDragEnd={(e) => {
-                                    const pieceAfter = { ...p, x: e.target.x(), y: e.target.y() };
+                                    const pieceAfter = {
+                                        ...p,
+                                        x: e.target.x(),
+                                        y: e.target.y(),
+                                    };
                                     const targets = (selectedProblemTargets as any) ?? [];
                                     const snap = findSnapForPiece(pieceAfter, targets);
                                     if (snap) {
@@ -752,7 +907,7 @@ export default function CanvasStage() {
                                             rotation: snap.rotation,
                                             placed: true,
                                         });
-                                        const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+                                        const pct = computeCoverage(pieces, targetPieces, 200, 160);
                                         setCoverage(pct);
                                     } else {
                                         updatePiece(p.id, {
@@ -760,7 +915,7 @@ export default function CanvasStage() {
                                             x: e.target.x(),
                                             y: e.target.y(),
                                         });
-                                        const pct = computeCoverage(pieces, offsetTarget, 200, 160);
+                                        const pct = computeCoverage(pieces, targetPieces, 200, 160);
                                         setCoverage(pct);
                                     }
                                 }}
@@ -769,12 +924,12 @@ export default function CanvasStage() {
                                 <Text
                                     key={`label-${p.id}`}
                                     text={circled[p.id - 1]}
-                                    fontSize={26 * scale}
+                                    fontSize={26 * textScale}
                                     fill={'#000'}
                                     x={p.centerX ?? 0}
                                     y={p.centerY ?? 0}
-                                    offsetX={13 * scale}
-                                    offsetY={13 * scale}
+                                    offsetX={13 * textScale}
+                                    offsetY={13 * textScale}
                                     rotation={-p.rotation}
                                     onClick={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;
