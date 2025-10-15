@@ -80,6 +80,17 @@ export default function CanvasStage() {
         const aEdges = getEdgesFromPoints(movedPts);
         let snapped = false;
 
+        // Early exit: if already overlapping beyond threshold, skip snap logic
+        let overlapSum = 0;
+        for (const op of otherPtsRef.current) {
+            overlapSum += calculateOverlapArea(movedPts, op);
+        }
+        const movingArea = p.area || 1;
+        const overlapFrac = overlapSum / movingArea;
+        if (overlapFrac > SNAP_ALLOW_THRESHOLD) {
+            return false;
+        }
+
         // vertex -> edge
         for (let vi = 0; vi < movedPts.length && !snapped; vi += 2) {
             const vx = movedPts[vi];
@@ -382,7 +393,7 @@ export default function CanvasStage() {
                     onMouseLeave={handleMouseUp}
                 >
                     <Layer>
-                        {/* Central target shapes (pixel-space) */}
+                        {/* Render central target shapes */}
                         {offsetTarget.map((p: any) => (
                             <Line key={p.id} points={p.points} fill="black" closed opacity={0.25} />
                         ))}
