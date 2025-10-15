@@ -45,6 +45,8 @@ export default function CanvasStage() {
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 
     const otherPtsRef = useRef<number[][]>([]);
+    const otherBBoxesRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number }[]>([]);
+    const otherGridRef = useRef<Map<string, number[]>>(new Map());
     const stageRef = useRef<Konva.Stage | null>(null);
     const touchDataRef = useRef({
         lastDist: 0,
@@ -70,6 +72,26 @@ export default function CanvasStage() {
         }
         return false;
     };
+
+    // helper: compute axis-aligned bbox from flattened pts
+    const bboxFromPts = (pts: number[]) => {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (let i = 0; i < pts.length; i += 2) {
+            const x = pts[i];
+            const y = pts[i + 1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+        return { minX, minY, maxX, maxY };
+    };
+
+    // helper: grid key
+    const gridKey = (gx: number, gy: number) => `${gx},${gy}`;
 
     const handleWheel = (e: any) => {
         const stage = stageRef.current;
@@ -318,9 +340,31 @@ export default function CanvasStage() {
                                     // 记录起始的安全位置
                                     lastSafePos.current[p.id] = { x: p.x, y: p.y };
                                     // 收集其他 pieces 的 world points
-                                    otherPtsRef.current = pieces
+                                    const others = pieces
                                         .filter((op) => op.id !== p.id)
                                         .map((op) => getTransformedPoints(op));
+                                    otherPtsRef.current = others;
+                                    // 预计算其他 pieces 的包围盒，用于快速过滤
+                                    const bboxes = others.map((pts) => bboxFromPts(pts));
+                                    otherBBoxesRef.current = bboxes;
+                                    // 构建简单的网格索引（按 GRID_CELL 大小）
+                                    const grid = new Map<string, number[]>();
+                                    for (let i = 0; i < bboxes.length; i++) {
+                                        const bb = bboxes[i];
+                                        const gx0 = Math.floor(bb.minX / GRID_CELL);
+                                        const gy0 = Math.floor(bb.minY / GRID_CELL);
+                                        const gx1 = Math.floor(bb.maxX / GRID_CELL);
+                                        const gy1 = Math.floor(bb.maxY / GRID_CELL);
+                                        for (let gx = gx0; gx <= gx1; gx++) {
+                                            for (let gy = gy0; gy <= gy1; gy++) {
+                                                const k = gridKey(gx, gy);
+                                                const arr = grid.get(k) || [];
+                                                arr.push(i);
+                                                grid.set(k, arr);
+                                            }
+                                        }
+                                    }
+                                    otherGridRef.current = grid;
                                 }}
                                 onDragMove={(e) => {
                                     const newX = e.target.x();
@@ -351,8 +395,35 @@ export default function CanvasStage() {
                                             const overlapAt = (x: number, y: number) => {
                                                 const candidate = { ...p, x, y };
                                                 const candPts = getTransformedPoints(candidate);
+                                                const candBox = bboxFromPts(candPts);
                                                 let sum = 0;
-                                                for (const op of otherPtsRef.current) {
+                                                // use grid to collect candidate indices
+                                                const gx0 = Math.floor(candBox.minX / GRID_CELL);
+                                                const gy0 = Math.floor(candBox.minY / GRID_CELL);
+                                                const gx1 = Math.floor(candBox.maxX / GRID_CELL);
+                                                const gy1 = Math.floor(candBox.maxY / GRID_CELL);
+                                                const seen = new Set<number>();
+                                                for (let gx = gx0; gx <= gx1; gx++) {
+                                                    for (let gy = gy0; gy <= gy1; gy++) {
+                                                        const k = gridKey(gx, gy);
+                                                        const arr =
+                                                            otherGridRef.current.get(k) || [];
+                                                        for (const idx of arr) seen.add(idx);
+                                                    }
+                                                }
+                                                // only compute overlap for candidates
+                                                for (const i of seen) {
+                                                    const op = otherPtsRef.current[i];
+                                                    const obb = otherBBoxesRef.current[i];
+                                                    // bbox reject (again) as safety
+                                                    if (
+                                                        obb.maxX < candBox.minX ||
+                                                        obb.minX > candBox.maxX ||
+                                                        obb.maxY < candBox.minY ||
+                                                        obb.minY > candBox.maxY
+                                                    ) {
+                                                        continue;
+                                                    }
                                                     sum += calculateOverlapArea(candPts, op);
                                                 }
                                                 return sum;
@@ -370,32 +441,52 @@ export default function CanvasStage() {
                                             let foundPos = startPos;
 
                                             if (safeOverlap <= 0 && targetOverlap > 0) {
-                                                // binary search on t in [0,1], where pos = start + t*(target-start)
-                                                let lo = 0;
-                                                let hi = 1;
-                                                // Do a limited number of iterations for performance
-                                                for (let iter = 0; iter < 24; iter++) {
-                                                    const mid = (lo + hi) / 2;
-                                                    const mx =
-                                                        startPos.x +
-                                                        (targetPos.x - startPos.x) * mid;
-                                                    const my =
-                                                        startPos.y +
-                                                        (targetPos.y - startPos.y) * mid;
+                                                // coarse sampling + refined binary search
+                                                const COARSE_STEPS = 8; // coarse samples
+                                                const dxSeg = targetPos.x - startPos.x;
+                                                const dySeg = targetPos.y - startPos.y;
+
+                                                // find the largest coarse t (in [0,1]) that has no overlap
+                                                let lastNonOverlapT = -1;
+                                                for (let s = 0; s <= COARSE_STEPS; s++) {
+                                                    const t = s / COARSE_STEPS;
+                                                    const mx = startPos.x + dxSeg * t;
+                                                    const my = startPos.y + dySeg * t;
                                                     const ov = overlapAt(mx, my);
-                                                    if (ov > 0) {
-                                                        // mid is still overlapping, move hi to mid (we want closest non-overlap to target)
-                                                        hi = mid;
-                                                    } else {
-                                                        // no overlap here, move lo to mid to get closer to target
-                                                        lo = mid;
-                                                    }
+                                                    if (ov <= 0) lastNonOverlapT = t;
                                                 }
-                                                const t = lo;
-                                                foundPos = {
-                                                    x: startPos.x + (targetPos.x - startPos.x) * t,
-                                                    y: startPos.y + (targetPos.y - startPos.y) * t,
-                                                };
+
+                                                if (lastNonOverlapT < 0) {
+                                                    // no non-overlap found even at start (shouldn't happen if safeOverlap<=0), fallback
+                                                    foundPos = startPos;
+                                                } else if (lastNonOverlapT >= 1 - 1e-9) {
+                                                    // target is non-overlapping
+                                                    foundPos = targetPos;
+                                                } else {
+                                                    // refine between lastNonOverlapT and next coarse sample
+                                                    let lo = lastNonOverlapT;
+                                                    let hi = Math.min(
+                                                        1,
+                                                        lastNonOverlapT + 1 / COARSE_STEPS,
+                                                    );
+                                                    // refined binary search (fewer iterations)
+                                                    for (let iter = 0; iter < 20; iter++) {
+                                                        const mid = (lo + hi) / 2;
+                                                        const mx = startPos.x + dxSeg * mid;
+                                                        const my = startPos.y + dySeg * mid;
+                                                        const ov = overlapAt(mx, my);
+                                                        if (ov > 0) {
+                                                            hi = mid;
+                                                        } else {
+                                                            lo = mid;
+                                                        }
+                                                    }
+                                                    const t = lo;
+                                                    foundPos = {
+                                                        x: startPos.x + dxSeg * t,
+                                                        y: startPos.y + dySeg * t,
+                                                    };
+                                                }
 
                                                 // --- 接触边检测与沿边滑动逻辑 ---
                                                 try {
