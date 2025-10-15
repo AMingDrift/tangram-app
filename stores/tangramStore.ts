@@ -175,7 +175,7 @@ export const useTangramStore = create<TangramState>()(
                 // normalize to grid coords for storage
                 const newTargetsGrid = newTargetsPixels.map((t) => ({
                     id: t.id,
-                    points: t.points.map((v) => Math.round((v / GRID_CELL) * 100) / 100),
+                    points: t.points.map((v) => Math.round((v / GRID_CELL) * 1000) / 1000),
                 }));
 
                 const newId = get().addProblemWithTargets(title || undefined, newTargetsGrid);

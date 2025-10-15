@@ -370,7 +370,7 @@ const calculatePolygonArea = (pts: number[]) => {
 };
 
 // 计算两个多边形的重叠面积
-const calculateOverlapArea = (ptsA: number[], ptsB: number[]) => {
+export const calculateOverlapArea = (ptsA: number[], ptsB: number[]) => {
     // Helper: 使用 Sutherland-Hodgman 算法裁剪多边形
     const clipPolygon = (subject: number[], clip: number[]) => {
         const output = [...subject];

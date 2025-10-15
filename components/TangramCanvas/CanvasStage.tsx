@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/shallow';
 import type { Piece } from '@/lib/tangramUtils';
 
 import {
+    calculateOverlapArea,
     checkCollisionsForPiece,
     computeCoverage,
     findSnapForPiece,
@@ -338,17 +339,81 @@ export default function CanvasStage() {
                                     if (blocked) {
                                         // console.log('drag move - piece', p.id, 'blocked');
                                         // 阻止：把 konva node 回退到上次安全位置
+                                        console.log('blocked', p.id);
                                         const safe = lastSafePos.current[p.id];
                                         if (safe && groupRefs.current[p.id]) {
+                                            // 尝试寻找从 safe -> 当前移动点之间的最近不重叠点
+                                            const targetPos = { x: newX, y: newY };
+                                            const startPos = { x: safe.x, y: safe.y };
+
+                                            // helper: compute overlap sum against all other pieces
+                                            const overlapAt = (x: number, y: number) => {
+                                                const candidate = { ...p, x, y };
+                                                const candPts = getTransformedPoints(candidate);
+                                                let sum = 0;
+                                                for (const op of otherPtsRef.current) {
+                                                    sum += calculateOverlapArea(candPts, op);
+                                                }
+                                                return sum;
+                                            };
+
+                                            // If safe already has zero overlap, just snap to safe
+                                            const safeOverlap = overlapAt(startPos.x, startPos.y);
+
+                                            // If target has overlap, we search along the segment for the closest point to target with overlap === 0
+                                            const targetOverlap = overlapAt(
+                                                targetPos.x,
+                                                targetPos.y,
+                                            );
+
+                                            let foundPos = startPos;
+
+                                            if (safeOverlap <= 0 && targetOverlap > 0) {
+                                                // binary search on t in [0,1], where pos = start + t*(target-start)
+                                                let lo = 0;
+                                                let hi = 1;
+                                                // Do a limited number of iterations for performance
+                                                for (let iter = 0; iter < 24; iter++) {
+                                                    const mid = (lo + hi) / 2;
+                                                    const mx =
+                                                        startPos.x +
+                                                        (targetPos.x - startPos.x) * mid;
+                                                    const my =
+                                                        startPos.y +
+                                                        (targetPos.y - startPos.y) * mid;
+                                                    const ov = overlapAt(mx, my);
+                                                    if (ov > 0) {
+                                                        // mid is still overlapping, move hi to mid (we want closest non-overlap to target)
+                                                        hi = mid;
+                                                    } else {
+                                                        // no overlap here, move lo to mid to get closer to target
+                                                        lo = mid;
+                                                    }
+                                                }
+                                                // choose point at lo (last known non-overlap) but move slightly towards hi to be as close to target as possible
+                                                const t = lo;
+                                                foundPos = {
+                                                    x: startPos.x + (targetPos.x - startPos.x) * t,
+                                                    y: startPos.y + (targetPos.y - startPos.y) * t,
+                                                };
+                                            } else if (safeOverlap <= 0 && targetOverlap <= 0) {
+                                                // both safe and target have no overlap -> accept target
+                                                foundPos = targetPos;
+                                            } else {
+                                                // fallback: just use safe
+                                                foundPos = startPos;
+                                            }
+
                                             groupRefs.current[p.id].position({
-                                                x: safe.x,
-                                                y: safe.y,
+                                                x: foundPos.x,
+                                                y: foundPos.y,
                                             });
                                             // 同步 store（确保状态一致）
-                                            updatePiece(p.id, { x: safe.x, y: safe.y });
+                                            updatePiece(p.id, { x: foundPos.x, y: foundPos.y });
+                                            lastSafePos.current[p.id] = foundPos;
                                         }
                                     } else {
-                                        // console.log('drag move - piece', p.id, 'allowed');
+                                        console.log('allowed', p.id);
                                         // 允许：更新位置并记录为新的安全点
                                         updatePiece(p.id, { x: newX, y: newY });
                                         lastSafePos.current[p.id] = { x: newX, y: newY };
