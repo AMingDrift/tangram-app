@@ -68,12 +68,12 @@ html {
     --radius: 0.625rem;
 
     /* Responsive root font-size (clamped for accessibility) */
-    --root-font-size: 0.8333vw;
+    --root-font-size: max(0.8333vw, 12px);
 
     /* Sidebar width: min/max bounds with viewport-relative center */
 
     /* Use rem for human-friendly min/max; middle uses vw to scale on large screens */
-    --sidebar-width: clamp(14rem, 20vw, 28rem);
+    --sidebar-width: 20rem;
     --background: oklch(100% 0 0deg);
     --foreground: oklch(14.5% 0 0deg);
     --card: oklch(100% 0 0deg);
