@@ -476,14 +476,12 @@ export const shouldBlockCollision = (
     movingPts: number[],
     otherPts: number[],
     movingArea: number,
-    allowThreshold = 0.15,
+    allowThreshold = 0.25,
 ) => {
     const intersect = polygonIntersectionSAT(movingPts, otherPts);
-    console.log('polygonIntersectionSAT', intersect);
     if (!intersect) return false;
 
     const overlapArea = calculateOverlapArea(movingPts, otherPts);
-    console.log('overlapArea, movingArea', overlapArea, movingArea);
 
     return overlapArea / movingArea < allowThreshold;
 };
@@ -493,7 +491,7 @@ export const checkCollisionsForPiece = (
     piecePts: number[],
     otherPiecesPts: number[][],
     movingArea: number,
-    allowThreshold = 0.15,
+    allowThreshold = 0.25,
 ) => {
     for (const op of otherPiecesPts) {
         if (shouldBlockCollision(piecePts, op, movingArea, allowThreshold)) {

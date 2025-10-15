@@ -45,8 +45,8 @@ export default function CanvasStage() {
     const circled = ['①', '②', '③', '④', '⑤', '⑥', '⑦'];
 
     const otherPtsRef = useRef<number[][]>([]);
-    const otherBBoxesRef = useRef<{ minX: number; minY: number; maxX: number; maxY: number }[]>([]);
-    const otherGridRef = useRef<Map<string, number[]>>(new Map());
+    // record if a piece is currently in an "allowed overlap" state (overlap fraction >= allowThreshold)
+    const overlappedRef = useRef<Record<number, boolean>>({});
     const stageRef = useRef<Konva.Stage | null>(null);
     const touchDataRef = useRef({
         lastDist: 0,
@@ -57,6 +57,8 @@ export default function CanvasStage() {
     const lastPanPosition = useRef<{ x: number; y: number } | null>(null);
     const touchPanningRef = useRef(false);
     const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
+
+    const OVERLAP_THRESHOLD = 0.5;
 
     // 检查事件目标或其父节点链中是否存在 draggable 属性（用于判定是否点中了 piece）
     const isEventOnDraggable = (target: any) => {
@@ -72,26 +74,6 @@ export default function CanvasStage() {
         }
         return false;
     };
-
-    // helper: compute axis-aligned bbox from flattened pts
-    const bboxFromPts = (pts: number[]) => {
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-        for (let i = 0; i < pts.length; i += 2) {
-            const x = pts[i];
-            const y = pts[i + 1];
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
-        }
-        return { minX, minY, maxX, maxY };
-    };
-
-    // helper: grid key
-    const gridKey = (gx: number, gy: number) => `${gx},${gy}`;
 
     const handleWheel = (e: any) => {
         const stage = stageRef.current;
@@ -160,7 +142,6 @@ export default function CanvasStage() {
     };
 
     const handleTouchMove = (e: any) => {
-        console.log(e);
         e.evt.preventDefault();
         const stage = stageRef.current;
         if (!stage) return;
@@ -340,31 +321,23 @@ export default function CanvasStage() {
                                     // 记录起始的安全位置
                                     lastSafePos.current[p.id] = { x: p.x, y: p.y };
                                     // 收集其他 pieces 的 world points
-                                    const others = pieces
+                                    otherPtsRef.current = pieces
                                         .filter((op) => op.id !== p.id)
                                         .map((op) => getTransformedPoints(op));
-                                    otherPtsRef.current = others;
-                                    // 预计算其他 pieces 的包围盒，用于快速过滤
-                                    const bboxes = others.map((pts) => bboxFromPts(pts));
-                                    otherBBoxesRef.current = bboxes;
-                                    // 构建简单的网格索引（按 GRID_CELL 大小）
-                                    const grid = new Map<string, number[]>();
-                                    for (let i = 0; i < bboxes.length; i++) {
-                                        const bb = bboxes[i];
-                                        const gx0 = Math.floor(bb.minX / GRID_CELL);
-                                        const gy0 = Math.floor(bb.minY / GRID_CELL);
-                                        const gx1 = Math.floor(bb.maxX / GRID_CELL);
-                                        const gy1 = Math.floor(bb.maxY / GRID_CELL);
-                                        for (let gx = gx0; gx <= gx1; gx++) {
-                                            for (let gy = gy0; gy <= gy1; gy++) {
-                                                const k = gridKey(gx, gy);
-                                                const arr = grid.get(k) || [];
-                                                arr.push(i);
-                                                grid.set(k, arr);
-                                            }
+                                    // detect if piece is already overlapping others beyond allowThreshold
+                                    try {
+                                        const pts = getTransformedPoints(p);
+                                        let sum = 0;
+                                        for (const op of otherPtsRef.current) {
+                                            sum += calculateOverlapArea(pts, op);
                                         }
+                                        const area = p.area || 1;
+                                        const frac = sum / area;
+                                        // use same allow threshold as collision check (OVERLAP_THRESHOLD)
+                                        overlappedRef.current[p.id] = frac >= OVERLAP_THRESHOLD;
+                                    } catch {
+                                        overlappedRef.current[p.id] = false;
                                     }
-                                    otherGridRef.current = grid;
                                 }}
                                 onDragMove={(e) => {
                                     const newX = e.target.x();
@@ -374,17 +347,37 @@ export default function CanvasStage() {
                                     const tempPiece = { ...p, x: newX, y: newY };
                                     const movedPts = getTransformedPoints(tempPiece);
 
+                                    // compute overlap fraction for moved position
+                                    let overlapSum = 0;
+                                    for (const op of otherPtsRef.current) {
+                                        overlapSum += calculateOverlapArea(movedPts, op);
+                                    }
+                                    const movingArea = p.area || 1;
+                                    const overlapFrac = overlapSum / movingArea;
+
+                                    // if currently in allowed-overlap state, skip collision/edge-sliding logic
+                                    if (
+                                        overlappedRef.current[p.id] ||
+                                        overlapFrac >= OVERLAP_THRESHOLD
+                                    ) {
+                                        // mark overlapped mode
+                                        overlappedRef.current[p.id] =
+                                            overlapFrac >= OVERLAP_THRESHOLD;
+                                        // allow free movement while overlapped and record as last safe
+                                        updatePiece(p.id, { x: newX, y: newY });
+                                        lastSafePos.current[p.id] = { x: newX, y: newY };
+                                        return;
+                                    }
+
                                     // 使用 SAT.js 检查是否存在阻止性碰撞
                                     const blocked = checkCollisionsForPiece(
                                         movedPts,
                                         otherPtsRef.current,
                                         pieces.find((pc) => pc.id === p.id)?.area || 0,
-                                        0.15,
+                                        OVERLAP_THRESHOLD,
                                     );
                                     if (blocked) {
-                                        // console.log('drag move - piece', p.id, 'blocked');
                                         // 阻止：把 konva node 回退到上次安全位置
-                                        console.log('blocked', p.id);
                                         const safe = lastSafePos.current[p.id];
                                         if (safe && groupRefs.current[p.id]) {
                                             // 尝试寻找从 safe -> 当前移动点之间的最近不重叠点
@@ -395,35 +388,8 @@ export default function CanvasStage() {
                                             const overlapAt = (x: number, y: number) => {
                                                 const candidate = { ...p, x, y };
                                                 const candPts = getTransformedPoints(candidate);
-                                                const candBox = bboxFromPts(candPts);
                                                 let sum = 0;
-                                                // use grid to collect candidate indices
-                                                const gx0 = Math.floor(candBox.minX / GRID_CELL);
-                                                const gy0 = Math.floor(candBox.minY / GRID_CELL);
-                                                const gx1 = Math.floor(candBox.maxX / GRID_CELL);
-                                                const gy1 = Math.floor(candBox.maxY / GRID_CELL);
-                                                const seen = new Set<number>();
-                                                for (let gx = gx0; gx <= gx1; gx++) {
-                                                    for (let gy = gy0; gy <= gy1; gy++) {
-                                                        const k = gridKey(gx, gy);
-                                                        const arr =
-                                                            otherGridRef.current.get(k) || [];
-                                                        for (const idx of arr) seen.add(idx);
-                                                    }
-                                                }
-                                                // only compute overlap for candidates
-                                                for (const i of seen) {
-                                                    const op = otherPtsRef.current[i];
-                                                    const obb = otherBBoxesRef.current[i];
-                                                    // bbox reject (again) as safety
-                                                    if (
-                                                        obb.maxX < candBox.minX ||
-                                                        obb.minX > candBox.maxX ||
-                                                        obb.maxY < candBox.minY ||
-                                                        obb.minY > candBox.maxY
-                                                    ) {
-                                                        continue;
-                                                    }
+                                                for (const op of otherPtsRef.current) {
                                                     sum += calculateOverlapArea(candPts, op);
                                                 }
                                                 return sum;
@@ -441,52 +407,32 @@ export default function CanvasStage() {
                                             let foundPos = startPos;
 
                                             if (safeOverlap <= 0 && targetOverlap > 0) {
-                                                // coarse sampling + refined binary search
-                                                const COARSE_STEPS = 8; // coarse samples
-                                                const dxSeg = targetPos.x - startPos.x;
-                                                const dySeg = targetPos.y - startPos.y;
-
-                                                // find the largest coarse t (in [0,1]) that has no overlap
-                                                let lastNonOverlapT = -1;
-                                                for (let s = 0; s <= COARSE_STEPS; s++) {
-                                                    const t = s / COARSE_STEPS;
-                                                    const mx = startPos.x + dxSeg * t;
-                                                    const my = startPos.y + dySeg * t;
+                                                // binary search on t in [0,1], where pos = start + t*(target-start)
+                                                let lo = 0;
+                                                let hi = 1;
+                                                // Do a limited number of iterations for performance
+                                                for (let iter = 0; iter < 24; iter++) {
+                                                    const mid = (lo + hi) / 2;
+                                                    const mx =
+                                                        startPos.x +
+                                                        (targetPos.x - startPos.x) * mid;
+                                                    const my =
+                                                        startPos.y +
+                                                        (targetPos.y - startPos.y) * mid;
                                                     const ov = overlapAt(mx, my);
-                                                    if (ov <= 0) lastNonOverlapT = t;
-                                                }
-
-                                                if (lastNonOverlapT < 0) {
-                                                    // no non-overlap found even at start (shouldn't happen if safeOverlap<=0), fallback
-                                                    foundPos = startPos;
-                                                } else if (lastNonOverlapT >= 1 - 1e-9) {
-                                                    // target is non-overlapping
-                                                    foundPos = targetPos;
-                                                } else {
-                                                    // refine between lastNonOverlapT and next coarse sample
-                                                    let lo = lastNonOverlapT;
-                                                    let hi = Math.min(
-                                                        1,
-                                                        lastNonOverlapT + 1 / COARSE_STEPS,
-                                                    );
-                                                    // refined binary search (fewer iterations)
-                                                    for (let iter = 0; iter < 20; iter++) {
-                                                        const mid = (lo + hi) / 2;
-                                                        const mx = startPos.x + dxSeg * mid;
-                                                        const my = startPos.y + dySeg * mid;
-                                                        const ov = overlapAt(mx, my);
-                                                        if (ov > 0) {
-                                                            hi = mid;
-                                                        } else {
-                                                            lo = mid;
-                                                        }
+                                                    if (ov > 0) {
+                                                        // mid is still overlapping, move hi to mid (we want closest non-overlap to target)
+                                                        hi = mid;
+                                                    } else {
+                                                        // no overlap here, move lo to mid to get closer to target
+                                                        lo = mid;
                                                     }
-                                                    const t = lo;
-                                                    foundPos = {
-                                                        x: startPos.x + dxSeg * t,
-                                                        y: startPos.y + dySeg * t,
-                                                    };
                                                 }
+                                                const t = lo;
+                                                foundPos = {
+                                                    x: startPos.x + (targetPos.x - startPos.x) * t,
+                                                    y: startPos.y + (targetPos.y - startPos.y) * t,
+                                                };
 
                                                 // --- 接触边检测与沿边滑动逻辑 ---
                                                 try {
@@ -680,7 +626,6 @@ export default function CanvasStage() {
                                             lastSafePos.current[p.id] = foundPos;
                                         }
                                     } else {
-                                        console.log('allowed', p.id);
                                         // 允许：更新位置并记录为新的安全点
                                         updatePiece(p.id, { x: newX, y: newY });
                                         lastSafePos.current[p.id] = { x: newX, y: newY };
