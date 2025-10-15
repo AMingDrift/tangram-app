@@ -13,7 +13,6 @@ import {
     findSnapForPiece,
     getEdgesFromPoints,
     getTransformedPoints,
-    GRID_CELL,
 } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
@@ -48,6 +47,124 @@ export default function CanvasStage() {
     // record if a piece is currently in an "allowed overlap" state (overlap fraction >= allowThreshold)
     const overlappedRef = useRef<Record<number, boolean>>({});
     const stageRef = useRef<Konva.Stage | null>(null);
+
+    // 吸边常量（像素）
+    const SNAP_DIST = 20; // 可调整
+    // 吸边时允许的最大覆盖比（当 candidate 的总覆盖 / piece.area <= SNAP_ALLOW_THRESHOLD 时，仍允许吸附）
+    const SNAP_ALLOW_THRESHOLD = 0.01; // 1% of piece area
+
+    // project point P onto segment AB, return closest point and t (0..1)
+    const projectPointOntoSegment = (
+        px: number,
+        py: number,
+        ax: number,
+        ay: number,
+        bx: number,
+        by: number,
+    ) => {
+        const vx = bx - ax;
+        const vy = by - ay;
+        const wx = px - ax;
+        const wy = py - ay;
+        const c1 = vx * wx + vy * wy;
+        const c2 = vx * vx + vy * vy;
+        let t = 0;
+        if (c2 > 1e-12) t = Math.max(0, Math.min(1, c1 / c2));
+        const cx = ax + vx * t;
+        const cy = ay + vy * t;
+        return { x: cx, y: cy, t };
+    };
+
+    // 尝试对单个 piece 执行吸边（点->边、边->边），成功返回 true 并已应用位置
+    const attemptSnap = (p: Piece, newX: number, newY: number, movedPts: number[]) => {
+        const aEdges = getEdgesFromPoints(movedPts);
+        let snapped = false;
+
+        // vertex -> edge
+        for (let vi = 0; vi < movedPts.length && !snapped; vi += 2) {
+            const vx = movedPts[vi];
+            const vy = movedPts[vi + 1];
+            for (const opPts of otherPtsRef.current) {
+                const otherEdges = getEdgesFromPoints(opPts);
+                for (const be of otherEdges) {
+                    const proj = projectPointOntoSegment(vx, vy, be.ax, be.ay, be.bx, be.by);
+                    const dist = Math.hypot(vx - proj.x, vy - proj.y);
+                    if (dist <= SNAP_DIST) {
+                        const dx = proj.x - vx;
+                        const dy = proj.y - vy;
+                        const candX = newX + dx;
+                        const candY = newY + dy;
+                        const candPiece = { ...p, x: candX, y: candY };
+                        const candPts = getTransformedPoints(candPiece);
+                        // compute overlap fraction for candidate and allow snap if small
+                        let candOverlapSum = 0;
+                        for (const op of otherPtsRef.current) {
+                            candOverlapSum += calculateOverlapArea(candPts, op);
+                        }
+                        const candArea = p.area || 1;
+                        const candOverlapFrac = candOverlapSum / candArea;
+                        if (candOverlapFrac <= SNAP_ALLOW_THRESHOLD) {
+                            groupRefs.current[p.id].position({ x: candX, y: candY });
+                            updatePiece(p.id, { x: candX, y: candY });
+                            lastSafePos.current[p.id] = { x: candX, y: candY };
+                            snapped = true;
+                            break;
+                        }
+                    }
+                }
+                if (snapped) break;
+            }
+        }
+
+        // edge -> edge
+        if (!snapped) {
+            for (const ae of aEdges) {
+                if (snapped) break;
+                const amidx = (ae.ax + ae.bx) / 2;
+                const amidy = (ae.ay + ae.by) / 2;
+                for (const opPts of otherPtsRef.current) {
+                    const otherEdges = getEdgesFromPoints(opPts);
+                    for (const be of otherEdges) {
+                        const proj = projectPointOntoSegment(
+                            amidx,
+                            amidy,
+                            be.ax,
+                            be.ay,
+                            be.bx,
+                            be.by,
+                        );
+                        const dist = Math.hypot(amidx - proj.x, amidy - proj.y);
+                        if (dist <= SNAP_DIST) {
+                            const dx = proj.x - amidx;
+                            const dy = proj.y - amidy;
+                            const candX = newX + dx;
+                            const candY = newY + dy;
+                            const candPiece = { ...p, x: candX, y: candY };
+                            const candPts = getTransformedPoints(candPiece);
+                            let candOverlapSum = 0;
+                            for (const op of otherPtsRef.current) {
+                                candOverlapSum += calculateOverlapArea(candPts, op);
+                            }
+                            const candArea = p.area || 1;
+                            const candOverlapFrac = candOverlapSum / candArea;
+                            if (candOverlapFrac <= SNAP_ALLOW_THRESHOLD) {
+                                groupRefs.current[p.id].position({ x: candX, y: candY });
+                                updatePiece(p.id, { x: candX, y: candY });
+                                lastSafePos.current[p.id] = { x: candX, y: candY };
+                                snapped = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (snapped) break;
+                }
+            }
+        }
+
+        return snapped;
+    };
+
+    // helpers for snapping
     const touchDataRef = useRef({
         lastDist: 0,
         lastCenter: { x: 0, y: 0 },
@@ -265,40 +382,6 @@ export default function CanvasStage() {
                     onMouseLeave={handleMouseUp}
                 >
                     <Layer>
-                        {/* grid and rendering logic should be migrated here */}
-                        {/* Grid background */}
-                        {(() => {
-                            const lines = [] as any[];
-                            const GRID = GRID_CELL / 2;
-                            const cols = Math.ceil(size.width / GRID);
-                            const rows = Math.ceil(size.height / GRID);
-                            for (let i = 0; i <= cols; i++) {
-                                const x = i * GRID;
-                                lines.push(
-                                    <Line
-                                        key={`v-${i}`}
-                                        points={[x, 0, x, size.height]}
-                                        stroke="#ddd"
-                                        strokeWidth={1}
-                                        opacity={0.6}
-                                    />,
-                                );
-                            }
-                            for (let j = 0; j <= rows; j++) {
-                                const y = j * GRID;
-                                lines.push(
-                                    <Line
-                                        key={`h-${j}`}
-                                        points={[0, y, size.width, y]}
-                                        stroke="#ddd"
-                                        strokeWidth={1}
-                                        opacity={0.6}
-                                    />,
-                                );
-                            }
-                            return lines;
-                        })()}
-
                         {/* Central target shapes (pixel-space) */}
                         {offsetTarget.map((p: any) => (
                             <Line key={p.id} points={p.points} fill="black" closed opacity={0.25} />
@@ -367,6 +450,14 @@ export default function CanvasStage() {
                                         updatePiece(p.id, { x: newX, y: newY });
                                         lastSafePos.current[p.id] = { x: newX, y: newY };
                                         return;
+                                    }
+
+                                    // --- 吸边 (snap) 逻辑: 在正式 collision check 前尝试吸附 ---
+                                    try {
+                                        if (attemptSnap(p, newX, newY, movedPts)) return;
+                                    } catch {
+                                        // ignore snap errors and proceed to normal collision handling
+                                        // snap error ignored
                                     }
 
                                     // 使用 SAT.js 检查是否存在阻止性碰撞
