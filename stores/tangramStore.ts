@@ -7,9 +7,11 @@ import type { Piece } from '@/lib/tangramUtils';
 
 import {
     computeCoverage,
+    computeStageTransformForTargets,
     defaultTangram,
     generateThumbnail,
     getTransformedPoints,
+    placePiecesInRightArea,
 } from '@/lib/tangramUtils';
 
 import { tangramIDBStore } from './tangramIDBStore';
@@ -145,7 +147,15 @@ export const useTangramStore = create<TangramState>()(
             startCreation: () =>
                 set((_state) => {
                     const prev = _state.selectedProblem ?? '';
-                    const pieces = defaultTangram();
+                    const stageTransform = computeStageTransformForTargets(
+                        _state.size || { width: 0, height: 0 },
+                        undefined,
+                    );
+                    const pieces = placePiecesInRightArea(
+                        defaultTangram(),
+                        _state.size || { width: 0, height: 0 },
+                        stageTransform,
+                    );
                     return {
                         previousSelectedProblem: prev,
                         creating: true,
@@ -156,7 +166,28 @@ export const useTangramStore = create<TangramState>()(
             cancelCreation: () =>
                 set((_state) => {
                     const prev = _state.previousSelectedProblem ?? '';
-                    const pieces = defaultTangram();
+                    // If there is a transient draft for the previously-selected problem, restore it.
+                    // Otherwise, place the default tangram into the right area so pieces remain visible.
+                    const stageTransform = computeStageTransformForTargets(
+                        _state.size || { width: 0, height: 0 },
+                        _state.problemTargets[_state.previousSelectedProblem || ''] || [],
+                    );
+                    let pieces = placePiecesInRightArea(
+                        defaultTangram(),
+                        _state.size || { width: 0, height: 0 },
+                        stageTransform,
+                    );
+                    try {
+                        if (
+                            prev &&
+                            Array.isArray((_state.drafts || {})[prev]) &&
+                            (_state.drafts || {})[prev].length > 0
+                        ) {
+                            pieces = (_state.drafts || {})[prev];
+                        }
+                    } catch {
+                        // fallback to placed default pieces (already assigned)
+                    }
                     return {
                         creating: false,
                         pieces,
@@ -210,7 +241,7 @@ export const useTangramStore = create<TangramState>()(
                 }),
             // import problems data from structured array
             importProblemsData: (data) =>
-                set((state: any) => {
+                set((_state: any) => {
                     // include answers (pieces + thumbnail) when present in import data
                     const newProblems = data.map((d) => ({
                         id: String(d.id),
@@ -230,13 +261,25 @@ export const useTangramStore = create<TangramState>()(
                         newProblemTargets[String(d.id)] = d.targetPieces || d.targets || [];
                         newThumbnails[String(d.id)] = d.thumbnail || '';
                     });
-                    const pieces = defaultTangram();
+                    // Also initialize pieces so that importing a file where the first problem has empty targets
+                    // still results in visible pieces on the right area.
+                    const firstSelected = newProblems.length > 0 ? newProblems[0].id : '';
+                    const initialStageTransform = computeStageTransformForTargets(
+                        _state.size || { width: 0, height: 0 },
+                        newProblemTargets[newProblems.length > 0 ? newProblems[0].id : ''],
+                    );
+                    const initialPieces = placePiecesInRightArea(
+                        defaultTangram(),
+                        _state.size || { width: 0, height: 0 },
+                        initialStageTransform,
+                    );
+
                     return {
                         problems: newProblems,
                         problemTargets: newProblemTargets,
                         thumbnails: newThumbnails,
-                        pieces,
-                        selectedProblem: newProblems.length > 0 ? newProblems[0].id : '',
+                        selectedProblem: firstSelected,
+                        pieces: initialPieces,
                     };
                 }),
             exportProblemsData: () => {
@@ -301,12 +344,47 @@ export const useTangramStore = create<TangramState>()(
                     delete newThumbnails[id];
                     const newDrafts = { ...(state.drafts || {}) };
                     delete newDrafts[id];
+
+                    // Determine pieces to show for the newly-selected problem.
+                    // Prefer restoring any transient draft; otherwise place a default tangram
+                    // into the right area using a stageTransform computed for the newSelected targets.
+                    let newPieces = state.pieces || [];
+                    try {
+                        if (
+                            newSelected &&
+                            Array.isArray((state.drafts || {})[newSelected]) &&
+                            (state.drafts || {})[newSelected].length > 0
+                        ) {
+                            newPieces = (state.drafts || {})[newSelected];
+                        } else {
+                            const stageTransform = computeStageTransformForTargets(
+                                state.size || { width: 0, height: 0 },
+                                newProblemTargets[newSelected] || [],
+                            );
+                            newPieces = placePiecesInRightArea(
+                                defaultTangram(),
+                                state.size || { width: 0, height: 0 },
+                                stageTransform,
+                            );
+                        }
+                    } catch (e) {
+                        // fallback: keep current pieces
+                        console.warn('恢复删除后 pieces 失败，使用现有 pieces', e);
+                        newPieces = state.pieces || [];
+                    }
+
+                    // compute coverage for the new selection
+                    const targetsForCoverage = newProblemTargets[newSelected] || [];
+                    const pct = computeCoverage(newPieces, targetsForCoverage, 200, 160);
+
                     return {
                         problems: newProblems,
                         problemTargets: newProblemTargets,
                         thumbnails: newThumbnails,
                         drafts: newDrafts,
                         selectedProblem: newSelected,
+                        pieces: newPieces,
+                        coverage: pct,
                     };
                 }),
             editProblemTitle: (id, title) =>

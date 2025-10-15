@@ -409,21 +409,29 @@ export default function CanvasStage() {
         const stage = stageRef.current;
         if (!stage) return;
         const tp = targetPieces || [];
-        if (!tp || tp.length === 0) return;
-        // compute bbox in pixel coordinates
-        const allPts = tp.flatMap((t: any) => t.points || []);
-        if (allPts.length < 2) return;
+        // allow empty targetPieces: we'll still initialize the stage and place default tangram
+        const hasTargets = Array.isArray(tp) && tp.length > 0;
+        // compute bbox in pixel coordinates. If no targets, fall back to a neutral bbox around origin.
+        const allPts = tp.flatMap((t: any) => (t && Array.isArray(t.points) ? t.points : []));
         let minX = Infinity;
         let minY = Infinity;
         let maxX = -Infinity;
         let maxY = -Infinity;
-        for (let i = 0; i < allPts.length; i += 2) {
-            const x = allPts[i];
-            const y = allPts[i + 1];
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
+        if (hasTargets && allPts.length >= 2) {
+            for (let i = 0; i < allPts.length; i += 2) {
+                const x = allPts[i];
+                const y = allPts[i + 1];
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        } else {
+            // no targets: use a small default bbox to allow scale/position calc to continue
+            minX = 0;
+            minY = 0;
+            maxX = 1;
+            maxY = 1;
         }
 
         const bboxW = Math.max(1, maxX - minX);
@@ -433,8 +441,8 @@ export default function CanvasStage() {
         const leftAreaH = size.height || bboxH;
 
         // desired display sizes
-        const desiredByHeight = (size.height || 0) * 0.8; // 80% of page height
-        const desiredByLeftWidth = leftAreaW * 0.8; // 80% of left-area width
+        const desiredByHeight = (size.height || 0) * 0.66; // 66% of page height
+        const desiredByLeftWidth = leftAreaW * 0.66; // 66% of left-area width
 
         // choose the larger target display dimension and compute uniform scale
         const targetDisplay = Math.max(desiredByHeight, desiredByLeftWidth);
@@ -444,11 +452,12 @@ export default function CanvasStage() {
         const scaleForH = targetDisplay / bboxH;
         // choose the smaller scale so that both dimensions fit into targetDisplay box
         const chosenScale = Math.min(scaleForW, scaleForH);
-        const finalScale = Math.max(0.0001, chosenScale * 0.95);
+        // If there are no target pieces, fall back to a neutral scale of 1 so pieces are not blown up
+        const finalScale = hasTargets ? Math.max(0.0001, chosenScale * 0.95) : 1;
 
-        // compute centers
-        const bboxCenterX = (minX + maxX) / 2;
-        const bboxCenterY = (minY + maxY) / 2;
+        // compute centers (when no targets, bbox center defaults to 0 so stage centers sensibly)
+        const bboxCenterX = hasTargets ? (minX + maxX) / 2 : 0;
+        const bboxCenterY = hasTargets ? (minY + maxY) / 2 : 0;
         const leftCenterX = leftAreaW / 2;
         const centerY = (leftAreaH || 0) / 2;
 
@@ -529,7 +538,7 @@ export default function CanvasStage() {
         stage.scale({ x: finalScale, y: finalScale });
         stage.position({ x: stageX, y: stageY });
         stage.batchDraw();
-    }, [targetPieces]);
+    }, [targetPieces, size]);
 
     return (
         <>

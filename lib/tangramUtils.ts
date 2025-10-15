@@ -16,33 +16,6 @@ export interface Piece {
 }
 
 export const GRID_CELL = 100;
-
-export const alignCenter = (allPoints: number[], size: { width: number; height: number }) => {
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    for (let i = 0; i < allPoints.length; i += 2) {
-        const x = allPoints[i];
-        const y = allPoints[i + 1];
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x);
-        maxY = Math.max(maxY, y);
-    }
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    const canvasCenterX = size.width / 2;
-    const canvasCenterY = size.height / 2;
-
-    const offsetX = canvasCenterX - centerX;
-    const offsetY = canvasCenterY - centerY;
-    return [offsetX, offsetY];
-};
-
 export const distance = (x1: number, y1: number, x2: number, y2: number) =>
     Math.hypot(x1 - x2, y1 - y2);
 
@@ -149,6 +122,61 @@ export const placePiecesInRightArea = (
     const offsetY = desiredWorldCenterY - piecesCenterY;
 
     return pieces.map((p) => ({ ...p, x: (p.x || 0) + offsetX, y: (p.y || 0) + offsetY }));
+};
+
+// Compute a stage transform (position + uniform scale) that fits the given target polygons
+// into the left 60% area of the canvas, using the same algorithm as CanvasStage's fit logic.
+export const computeStageTransformForTargets = (
+    canvasSize: { width: number; height: number },
+    targetPolys: { id: number; points: number[] }[] | undefined,
+) => {
+    const tp = targetPolys || [];
+    const allPts = tp.flatMap((t) => (t && Array.isArray(t.points) ? t.points : []));
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const hasTargets = Array.isArray(tp) && allPts.length >= 2;
+    if (hasTargets) {
+        for (let i = 0; i < allPts.length; i += 2) {
+            const x = allPts[i];
+            const y = allPts[i + 1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+    } else {
+        minX = 0;
+        minY = 0;
+        maxX = 1;
+        maxY = 1;
+    }
+
+    const bboxW = Math.max(1, maxX - minX);
+    const bboxH = Math.max(1, maxY - minY);
+
+    const leftAreaW = (canvasSize.width || 0) * 0.6;
+    const leftAreaH = canvasSize.height || bboxH;
+
+    const desiredByHeight = (canvasSize.height || 0) * 0.66;
+    const desiredByLeftWidth = leftAreaW * 0.66;
+    const targetDisplay = Math.max(desiredByHeight, desiredByLeftWidth);
+
+    const scaleForW = targetDisplay / bboxW;
+    const scaleForH = targetDisplay / bboxH;
+    const chosenScale = Math.min(scaleForW, scaleForH);
+    const finalScale = hasTargets ? Math.max(0.0001, chosenScale * 0.95) : 1;
+
+    const bboxCenterX = hasTargets ? (minX + maxX) / 2 : 0;
+    const bboxCenterY = hasTargets ? (minY + maxY) / 2 : 0;
+    const leftCenterX = leftAreaW / 2;
+    const centerY = (leftAreaH || 0) / 2;
+
+    const stageX = leftCenterX - bboxCenterX * finalScale;
+    const stageY = centerY - bboxCenterY * finalScale;
+
+    return { x: stageX, y: stageY, scale: finalScale };
 };
 
 export const angleDiff = (a: number, b: number) => {

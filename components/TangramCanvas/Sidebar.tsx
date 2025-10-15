@@ -39,6 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import {
     computeCoverage,
+    computeStageTransformForTargets,
     defaultTangram,
     generateThumbnail,
     getTransformedPoints,
@@ -747,30 +748,17 @@ export default function Sidebar() {
                                                 if (y > pmaxY) pmaxY = y;
                                             }
                                         }
-                                        const piecesCenterX = (pminX + pmaxX) / 2;
-                                        const piecesCenterY = (pminY + pmaxY) / 2;
-
-                                        const totalWidth =
-                                            useTangramStore.getState().size.width || 0;
-                                        const leftAreaW = totalWidth * 0.6;
-                                        const rightAreaLeft = leftAreaW;
-                                        const rightAreaW = (totalWidth || 0) - rightAreaLeft;
-                                        const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
-                                        const rightCenterScreenY =
-                                            (useTangramStore.getState().size.height || 0) / 2;
-
-                                        // Need to take current stage transform into account; attempt to read stage from DOM via global store
-                                        // If stage transform is not available here, fall back to simple translation to right area center
-                                        // We'll try to approximate by assuming stage scale/position set earlier in CanvasStage; if not available, just offset by rightCenterScreenX
-                                        // Use a conservative approach: place origin pieces centered near right area in pixel space by shifting their x by rightCenterScreenX - piecesCenterX
-                                        const offsetX = rightCenterScreenX - piecesCenterX;
-                                        const offsetY = rightCenterScreenY - piecesCenterY;
-
-                                        const piecesForRight = originPieces.map((p) => ({
-                                            ...p,
-                                            x: (p.x || 0) + offsetX,
-                                            y: (p.y || 0) + offsetY,
-                                        }));
+                                        // compute a stageTransform consistent with CanvasStage
+                                        const st = useTangramStore.getState();
+                                        const stageTransform = computeStageTransformForTargets(
+                                            st.size || { width: 0, height: 0 },
+                                            st.problemTargets[st.selectedProblem] || [],
+                                        );
+                                        const piecesForRight = placePiecesInRightArea(
+                                            originPieces,
+                                            st.size || { width: 0, height: 0 },
+                                            stageTransform,
+                                        );
                                         finalPieces = piecesForRight;
                                         setPieces(piecesForRight);
                                     } catch {
