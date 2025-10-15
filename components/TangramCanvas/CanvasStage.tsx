@@ -11,6 +11,7 @@ import {
     checkCollisionsForPiece,
     computeCoverage,
     findSnapForPiece,
+    getEdgesFromPoints,
     getTransformedPoints,
     GRID_CELL,
 } from '@/lib/tangramUtils';
@@ -390,12 +391,184 @@ export default function CanvasStage() {
                                                         lo = mid;
                                                     }
                                                 }
-                                                // choose point at lo (last known non-overlap) but move slightly towards hi to be as close to target as possible
                                                 const t = lo;
                                                 foundPos = {
                                                     x: startPos.x + (targetPos.x - startPos.x) * t,
                                                     y: startPos.y + (targetPos.y - startPos.y) * t,
                                                 };
+
+                                                // --- 接触边检测与沿边滑动逻辑 ---
+                                                try {
+                                                    // transformed points at foundPos
+                                                    const cand = {
+                                                        ...p,
+                                                        x: foundPos.x,
+                                                        y: foundPos.y,
+                                                    };
+                                                    const candPts = getTransformedPoints(cand);
+                                                    const candEdges = getEdgesFromPoints(candPts);
+
+                                                    // find the closest edge pair between candidate and other pieces
+                                                    let best = {
+                                                        dist: Infinity,
+                                                        which: 'none' as 'aEdge' | 'bEdge' | 'none',
+                                                        aEdge: null as any,
+                                                        bEdge: null as any,
+                                                    };
+
+                                                    // (distPointToSeg removed; using pointSegDist below)
+
+                                                    // simple point->segment distance helper (robust)
+                                                    const pointSegDist = (
+                                                        px: number,
+                                                        py: number,
+                                                        ax: number,
+                                                        ay: number,
+                                                        bx: number,
+                                                        by: number,
+                                                    ) => {
+                                                        const vx = bx - ax;
+                                                        const vy = by - ay;
+                                                        const wx = px - ax;
+                                                        const wy = py - ay;
+                                                        const c1 = vx * wx + vy * wy;
+                                                        const c2 = vx * vx + vy * vy;
+                                                        let t = 0;
+                                                        if (c2 > 1e-12)
+                                                            t = Math.max(0, Math.min(1, c1 / c2));
+                                                        const cx = ax + vx * t;
+                                                        const cy = ay + vy * t;
+                                                        const dx = px - cx;
+                                                        const dy = py - cy;
+                                                        return Math.hypot(dx, dy);
+                                                    };
+
+                                                    for (const opPts of otherPtsRef.current) {
+                                                        const otherEdges =
+                                                            getEdgesFromPoints(opPts);
+                                                        for (const ae of candEdges) {
+                                                            for (const be of otherEdges) {
+                                                                // compute minimal of endpoint-to-segment distances
+                                                                const dA1 = pointSegDist(
+                                                                    ae.ax,
+                                                                    ae.ay,
+                                                                    be.ax,
+                                                                    be.ay,
+                                                                    be.bx,
+                                                                    be.by,
+                                                                );
+                                                                const dA2 = pointSegDist(
+                                                                    ae.bx,
+                                                                    ae.by,
+                                                                    be.ax,
+                                                                    be.ay,
+                                                                    be.bx,
+                                                                    be.by,
+                                                                );
+                                                                const dB1 = pointSegDist(
+                                                                    be.ax,
+                                                                    be.ay,
+                                                                    ae.ax,
+                                                                    ae.ay,
+                                                                    ae.bx,
+                                                                    ae.by,
+                                                                );
+                                                                const dB2 = pointSegDist(
+                                                                    be.bx,
+                                                                    be.by,
+                                                                    ae.ax,
+                                                                    ae.ay,
+                                                                    ae.bx,
+                                                                    ae.by,
+                                                                );
+                                                                const localMin = Math.min(
+                                                                    dA1,
+                                                                    dA2,
+                                                                    dB1,
+                                                                    dB2,
+                                                                );
+                                                                if (localMin < best.dist) {
+                                                                    let which:
+                                                                        | 'aEdge'
+                                                                        | 'bEdge'
+                                                                        | 'none' = 'none';
+                                                                    // determine whether contact is on A's edge or B's edge by which distance was minimal
+                                                                    if (
+                                                                        localMin === dB1 ||
+                                                                        localMin === dB2
+                                                                    )
+                                                                        which = 'aEdge';
+                                                                    else if (
+                                                                        localMin === dA1 ||
+                                                                        localMin === dA2
+                                                                    )
+                                                                        which = 'bEdge';
+                                                                    best = {
+                                                                        dist: localMin,
+                                                                        which,
+                                                                        aEdge: ae,
+                                                                        bEdge: be,
+                                                                    };
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    const CONTACT_EPS = 0.5; // px tolerance
+                                                    if (
+                                                        best.which !== 'none' &&
+                                                        best.dist <= CONTACT_EPS
+                                                    ) {
+                                                        // choose edge to slide along
+                                                        const edge =
+                                                            best.which === 'aEdge'
+                                                                ? best.aEdge
+                                                                : best.bEdge;
+                                                        const ex = edge.bx - edge.ax;
+                                                        const ey = edge.by - edge.ay;
+                                                        const len = Math.hypot(ex, ey) || 1;
+                                                        const dir = { x: ex / len, y: ey / len };
+
+                                                        // desired delta from foundPos to target
+                                                        const dx = targetPos.x - foundPos.x;
+                                                        const dy = targetPos.y - foundPos.y;
+                                                        // projection onto edge direction
+                                                        const proj = dx * dir.x + dy * dir.y;
+                                                        // if projection negative, allow sliding opposite direction as well
+                                                        // attempt to move along dir by proj, but clamp to non-overlap via binary search
+                                                        const maxMove = Math.abs(proj);
+                                                        if (maxMove > 1e-3) {
+                                                            let loS = 0;
+                                                            let hiS = maxMove;
+                                                            // binary search on scalar magnitude
+                                                            for (let it = 0; it < 18; it++) {
+                                                                const midS = (loS + hiS) / 2;
+                                                                const sign = proj >= 0 ? 1 : -1;
+                                                                const nx =
+                                                                    foundPos.x +
+                                                                    dir.x * midS * sign;
+                                                                const ny =
+                                                                    foundPos.y +
+                                                                    dir.y * midS * sign;
+                                                                const ov = overlapAt(nx, ny);
+                                                                if (ov > 0) {
+                                                                    // overlapping, reduce move
+                                                                    hiS = midS;
+                                                                } else {
+                                                                    loS = midS;
+                                                                }
+                                                            }
+                                                            const finalS =
+                                                                loS * (proj >= 0 ? 1 : -1);
+                                                            foundPos = {
+                                                                x: foundPos.x + dir.x * finalS,
+                                                                y: foundPos.y + dir.y * finalS,
+                                                            };
+                                                        }
+                                                    }
+                                                } catch {
+                                                    // ignore sliding failure and fallback to foundPos
+                                                }
                                             } else if (safeOverlap <= 0 && targetOverlap <= 0) {
                                                 // both safe and target have no overlap -> accept target
                                                 foundPos = targetPos;
@@ -409,7 +582,10 @@ export default function CanvasStage() {
                                                 y: foundPos.y,
                                             });
                                             // 同步 store（确保状态一致）
-                                            updatePiece(p.id, { x: foundPos.x, y: foundPos.y });
+                                            updatePiece(p.id, {
+                                                x: foundPos.x,
+                                                y: foundPos.y,
+                                            });
                                             lastSafePos.current[p.id] = foundPos;
                                         }
                                     } else {
