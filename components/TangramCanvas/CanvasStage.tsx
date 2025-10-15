@@ -47,11 +47,20 @@ export default function CanvasStage() {
     // record if a piece is currently in an "allowed overlap" state (overlap fraction >= allowThreshold)
     const overlappedRef = useRef<Record<number, boolean>>({});
     const stageRef = useRef<Konva.Stage | null>(null);
+    // scale certain pixel constants by root font-size so rem changes affect behaviour
+    const rootFs =
+        typeof window !== 'undefined'
+            ? Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+            : 16;
+    const REM_BASE = 16;
+    const scale = rootFs / REM_BASE;
 
-    // 吸边常量（像素）
-    const SNAP_DIST = 20; // 可调整
+    // 吸边常量（以 px 为基准，但随 root font-size 缩放）
+    const SNAP_DIST = 20 * scale; // 可调整
     // 吸边时允许的最大覆盖比（当 candidate 的总覆盖 / piece.area <= SNAP_ALLOW_THRESHOLD 时，仍允许吸附）
     const SNAP_ALLOW_THRESHOLD = 0.01; // 1% of piece area
+    // 接触容差（随缩放）
+    const CONTACT_EPS = 0.5 * scale;
 
     // project point P onto segment AB, return closest point and t (0..1)
     const projectPointOntoSegment = (
@@ -653,7 +662,6 @@ export default function CanvasStage() {
                                                         }
                                                     }
 
-                                                    const CONTACT_EPS = 0.5; // px tolerance
                                                     if (
                                                         best.which !== 'none' &&
                                                         best.dist <= CONTACT_EPS
@@ -761,12 +769,12 @@ export default function CanvasStage() {
                                 <Text
                                     key={`label-${p.id}`}
                                     text={circled[p.id - 1]}
-                                    fontSize={26}
+                                    fontSize={26 * scale}
                                     fill={'#000'}
                                     x={p.centerX ?? 0}
                                     y={p.centerY ?? 0}
-                                    offsetX={13}
-                                    offsetY={13}
+                                    offsetX={13 * scale}
+                                    offsetY={13 * scale}
                                     rotation={-p.rotation}
                                     onClick={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;

@@ -22,8 +22,15 @@ const Toaster = ({ ...props }: ToasterProps) => {
             el.id = TOAST_ROOT_ID;
             // container shouldn't block pointer events; toasts inside will receive events
             el.style.position = 'fixed';
-            el.style.inset = '0';
-            el.style.zIndex = '2147483647';
+            // position toasts in the top-right corner with a safe inset
+            el.style.top = '1rem';
+            el.style.right = '1rem';
+            el.style.left = 'auto';
+            el.style.bottom = 'auto';
+            // limit max width so toasts remain readable on very large screens
+            el.style.maxWidth = 'min(90vw, 48rem)';
+            el.style.zIndex = '51';
+            // container shouldn't block pointer events; toasts inside will receive events
             el.style.pointerEvents = 'none';
             document.body.appendChild(el);
             created = true;
@@ -46,6 +53,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
                     '--normal-bg': 'var(--popover)',
                     '--normal-text': 'var(--popover-foreground)',
                     '--normal-border': 'var(--border)',
+                    '--icon-size': '1.25rem',
                 } as React.CSSProperties
             }
             {...props}

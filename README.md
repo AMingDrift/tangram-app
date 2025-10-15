@@ -1,6 +1,6 @@
 # 七巧板益智游戏 (Tangram Puzzle Game)
 
-这是一个专为小学数学教师设计的七巧板互动教学工具，使用 React、Next.js 15+、TypeScript、SVG 和 Konva.js 构建。
+这是一个专为小学数学教师设计的七巧板互动教学工具，使用 React、Next.js 15+、TypeScript 和 Konva.js 构建。
 
 ## 功能特点
 
@@ -21,16 +21,18 @@
 ## 安装和运行
 
 1. 安装依赖:
-   ```bash
-   pnpm install
-   ```
+
+    ```bash
+    pnpm install
+    ```
 
 2. 启动开发服务器:
-   ```bash
-   pnpm dev
-   ```
 
-3. 在浏览器中打开 http://localhost:3000 查看应用
+    ```bash
+    pnpm dev
+    ```
+
+3. 在浏览器中打开 <http://localhost:3000> 查看应用
 
 ## 使用说明
 
@@ -62,13 +64,21 @@
 
 ## 自定义
 
-你可以通过修改 [page.tsx](file:///e:/wmc/code/tangram-app/app/page.tsx) 文件来自定义:
+你可以通过修改文件来自定义:
 
 - 七巧板图形的形状和颜色
 - 目标轮廓的形状
 - 旋转角度
 - 吸附逻辑
 - 烟花效果
+
+## TODO
+
+- [x]   1. 碰撞检测，贴边吸附
+- [x]   2. 做一个空白的白板题目，或者干脆做一个按钮是白板模式
+- [ ]   3. 做题时图形移动到黑框区域做到贴边吸附
+- [ ]   4. window resize时不要重置图形位置，改为适配当前图形大小，让图形居中
+- [ ]   5. 自适应大屏模式，用vw,vh单位
 
 ## 许可证
 

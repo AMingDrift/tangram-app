@@ -17,6 +17,11 @@ body {
     overflow: hidden;
 }
 
+/* apply responsive root font-size so rem units scale */
+html {
+    font-size: var(--root-font-size);
+}
+
 * {
     box-sizing: border-box;
 }
@@ -61,6 +66,14 @@ body {
 
 :root {
     --radius: 0.625rem;
+
+    /* Responsive root font-size (clamped for accessibility) */
+    --root-font-size: 0.8333vw;
+
+    /* Sidebar width: min/max bounds with viewport-relative center */
+
+    /* Use rem for human-friendly min/max; middle uses vw to scale on large screens */
+    --sidebar-width: clamp(14rem, 20vw, 28rem);
     --background: oklch(100% 0 0deg);
     --foreground: oklch(14.5% 0 0deg);
     --card: oklch(100% 0 0deg);
@@ -147,6 +160,58 @@ body {
 .sonner-toast-wrapper {
     position: relative !important;
     z-index: 99999 !important;
+}
+
+.sonner-toast {
+    /* remove forced fixed sizes; let sonner's [data-sonner-toast] use variables */
+    width: auto !important;
+    height: auto !important;
+}
+
+/* Override sonner's data attributes to use our responsive CSS variables */
+
+/* Toaster container (holds multiple toasts) */
+[data-sonner-toaster] {
+    --width: 22.25rem !important;
+    --border-radius: 0.5rem !important;
+
+    /* width: var(--width, min(48rem, 90vw)); */
+
+    /* max-width: min(48rem, 90vw); */
+    padding: var(--padding, 0.75rem) !important;
+    font-size: var(--font-size, 1rem) !important;
+    border-radius: var(--border-radius, 0.5rem) !important;
+}
+
+/* Force sonner icon SVGs to use the CSS variable --icon-size (overrides inline width/height) */
+[data-sonner-toast] [data-icon] svg {
+    width: var(--icon-size, 1.25rem) !important;
+    max-width: none !important;
+    height: var(--icon-size, 1.25rem) !important;
+    max-height: none !important;
+}
+
+/* Individual toast entry when styled */
+[data-sonner-toast][data-styled] {
+    gap: 0.375rem !important;
+    padding: 1rem !important;
+    font-size: var(--root-font-size) !important;
+
+    [data-icon] {
+        width: 1rem !important;
+        height: 1rem !important;
+
+        --toast-icon-margin-start: -0.1875rem !important;
+        --toast-icon-margin-end: 0.25rem !important;
+    }
+
+    [data-button] {
+        height: 1.5rem !important;
+        padding-right: 0.5rem !important;
+        padding-left: 0.5rem !important;
+        font-size: 0.75rem !important;
+        border-radius: 0.25rem !important;
+    }
 }
 
 /* As a fallback, target common toast containers */

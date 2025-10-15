@@ -9,7 +9,28 @@ import { useTangramStore } from '@/stores/tangramStore';
 import CanvasStage from './CanvasStage';
 import Sidebar from './Sidebar';
 
-export const SIDEBAR_WIDTH = 320;
+// Sidebar width is controlled by CSS variable --sidebar-width; helper reads it as px
+export const getSidebarWidthPx = () => {
+    if (typeof window === 'undefined') return 320;
+    const root = document.documentElement;
+    const v = getComputedStyle(root).getPropertyValue('--sidebar-width')?.trim();
+    if (!v) return 320;
+    // If browser already computed it to px, it may be like "320px"
+    if (v.endsWith('px')) return Number.parseFloat(v);
+    // Support rem, vw
+    if (v.endsWith('rem')) {
+        const rem = Number.parseFloat(v);
+        const rootFs = Number.parseFloat(getComputedStyle(root).fontSize) || 16;
+        return rem * rootFs;
+    }
+    if (v.endsWith('vw')) {
+        const num = Number.parseFloat(v);
+        return (num / 100) * window.innerWidth;
+    }
+    // fallback parseFloat
+    const n = Number.parseFloat(v);
+    return Number.isFinite(n) ? n : 320;
+};
 export default function TangramCanvasApp() {
     const { pieces, problemTargets, setPieces, setSize, setOffsetTarget, selectedProblem } =
         useTangramStore(
@@ -25,13 +46,13 @@ export default function TangramCanvasApp() {
 
     useEffect(() => {
         const handleResize = () => {
-            setSize({ width: window.innerWidth - SIDEBAR_WIDTH, height: window.innerHeight });
+            setSize({ width: window.innerWidth - getSidebarWidthPx(), height: window.innerHeight });
             // 重新设置pieces和offsetTarget
             const st = useTangramStore.getState();
             if (st.size && st.size.width > 0) {
                 setPieces(
                     defaultTangram({
-                        width: window.innerWidth - SIDEBAR_WIDTH,
+                        width: window.innerWidth - getSidebarWidthPx(),
                         height: window.innerHeight,
                     }),
                 );
@@ -39,7 +60,10 @@ export default function TangramCanvasApp() {
             // 重新设置offsetTarget
             const selectedProblem = st.selectedProblem;
             const problemTargets = st.problemTargets;
-            const sz = { width: window.innerWidth - SIDEBAR_WIDTH, height: window.innerHeight };
+            const sz = {
+                width: window.innerWidth - getSidebarWidthPx(),
+                height: window.innerHeight,
+            };
             const targetsGrid = problemTargets[selectedProblem] || [];
             if (!targetsGrid || targetsGrid.length === 0) {
                 setOffsetTarget([]);

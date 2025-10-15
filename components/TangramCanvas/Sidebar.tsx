@@ -46,7 +46,7 @@ import {
 } from '@/lib/tangramUtils';
 import { useTangramStore } from '@/stores/tangramStore';
 
-import { SIDEBAR_WIDTH } from '.';
+// sidebar width now driven by CSS variable --sidebar-width
 import { Button } from '../ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
@@ -148,10 +148,28 @@ export default function Sidebar() {
         })),
     );
 
+    // compute icon sizes (px) from rem so icons scale with root font-size
+    const [iconPx, setIconPx] = useState<number>(() => {
+        if (typeof window === 'undefined') return 16;
+        return Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    });
+
+    useEffect(() => {
+        const compute = () => {
+            const fs = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+            // update using rAF to appease some linters about synchronous setState in event handlers
+            requestAnimationFrame(() => setIconPx(fs));
+        };
+        compute();
+        window.addEventListener('resize', compute);
+        return () => window.removeEventListener('resize', compute);
+    }, []);
+
     return (
         <aside
             className={`box-border overflow-auto border-r border-gray-300 bg-gray-50 p-3`}
-            style={{ flex: `0 0 ${SIDEBAR_WIDTH}px` }}
+            // use CSS var --sidebar-width with px fallback
+            style={{ flex: `0 0 var(--sidebar-width, 320px)` }}
         >
             <div className="mb-2 flex gap-2">
                 <Tooltip>
@@ -171,7 +189,7 @@ export default function Sidebar() {
                             aria-label="New"
                             disabled={creating}
                         >
-                            <PlusIcon />
+                            <PlusIcon size={Math.round(iconPx)} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -183,7 +201,7 @@ export default function Sidebar() {
                     <>
                         {/* Save dialog moved into Sidebar (only in creation mode) */}
                         <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-                            <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-[425px]">
+                            <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-[26.5625rem]">
                                 <DialogHeader>
                                     <DialogTitle>保存题目</DialogTitle>
                                     <DialogDescription>
@@ -260,7 +278,7 @@ export default function Sidebar() {
                                     size="icon"
                                     aria-label="Save"
                                 >
-                                    <SaveIcon />
+                                    <SaveIcon size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -283,7 +301,7 @@ export default function Sidebar() {
                                     size="icon"
                                     aria-label="Cancel"
                                 >
-                                    <Ban />
+                                    <Ban size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -312,7 +330,7 @@ export default function Sidebar() {
                                         setIsEditDialogOpen(true);
                                     }}
                                 >
-                                    <Edit3 />
+                                    <Edit3 size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -332,7 +350,7 @@ export default function Sidebar() {
                                         setIsDeleteDialogOpen(true);
                                     }}
                                 >
-                                    <Trash2 className="text-red-500" />
+                                    <Trash2 className="text-red-500" size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -351,7 +369,7 @@ export default function Sidebar() {
                                         setIsAnswerDialogOpen(true);
                                     }}
                                 >
-                                    <NotepadText />
+                                    <NotepadText size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -403,7 +421,7 @@ export default function Sidebar() {
                                         }
                                     }}
                                 >
-                                    <Check />
+                                    <Check size={Math.round(iconPx)} />
                                 </Button>
                             </TooltipTrigger>
                             <TooltipContent>
@@ -414,7 +432,7 @@ export default function Sidebar() {
                         {/* Answer List Dialog */}
                         <Dialog open={isAnswerDialogOpen} onOpenChange={setIsAnswerDialogOpen}>
                             <DialogContent
-                                className="sm:max-w-[640px] lg:max-w-[60vw]"
+                                className="sm:max-w-[40rem] lg:max-w-[60vw]"
                                 onPointerDownOutside={(e) => {
                                     // Prevent closing the answers dialog when clicking outside
                                     e.preventDefault();
@@ -424,7 +442,7 @@ export default function Sidebar() {
                                     <DialogTitle>答案列表</DialogTitle>
                                     <DialogDescription>点击答案以查看具体内容。</DialogDescription>
                                 </DialogHeader>
-                                <div className="grid max-h-[60vh] grid-cols-2 gap-4 overflow-auto py-4 pr-[1px] lg:max-h-[80vh]">
+                                <div className="grid max-h-[60vh] grid-cols-2 gap-4 overflow-auto py-4 pr-[0.0625rem] lg:max-h-[80vh]">
                                     {answers.map((answer, index) => (
                                         <div
                                             key={
@@ -458,7 +476,10 @@ export default function Sidebar() {
                                                         setIsAnswerDeleteDialogOpen(true);
                                                     }}
                                                 >
-                                                    <Trash2 className="text-red-500" />
+                                                    <Trash2
+                                                        className="text-red-500"
+                                                        size={Math.round(iconPx)}
+                                                    />
                                                 </Button>
                                             </div>
 
@@ -469,7 +490,7 @@ export default function Sidebar() {
                                                     width={200}
                                                     height={200}
                                                     unoptimized
-                                                    className="block h-auto w-[200px] object-contain"
+                                                    className="block h-auto w-[12.5rem] object-contain"
                                                 />
                                             </div>
                                         </div>
@@ -619,7 +640,7 @@ export default function Sidebar() {
                             aria-label="Download"
                             disabled={creating}
                         >
-                            <Download />
+                            <Download size={Math.round(iconPx)} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -637,7 +658,7 @@ export default function Sidebar() {
                             disabled={creating}
                             onClick={() => document.getElementById('import-problems')?.click()}
                         >
-                            <Upload />
+                            <Upload size={Math.round(iconPx)} />
                         </Button>
                     </TooltipTrigger>
                     <input
@@ -673,7 +694,7 @@ export default function Sidebar() {
                 </Tooltip>
             </div>
 
-            <h3 className="text-md my-3 font-medium">题目列表</h3>
+            <h3 className="my-3 text-[1.125rem] font-medium">题目列表</h3>
             <div className="grid gap-2">
                 {problems.map((pb: { id: string; title: string }) => (
                     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
@@ -842,7 +863,7 @@ export default function Sidebar() {
 
             {/* Edit problem title dialog */}
             <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[425px]">
+                <DialogContent className="sm:max-w-[26.5625rem]">
                     <DialogHeader>
                         <DialogTitle>编辑题目标题</DialogTitle>
                         <DialogDescription>
