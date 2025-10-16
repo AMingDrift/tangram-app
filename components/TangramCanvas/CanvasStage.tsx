@@ -1,3 +1,4 @@
+// debug: show prev and movedOverlapFrac
 import type Konva from 'konva';
 
 import React, { useEffect, useRef } from 'react';
@@ -60,6 +61,42 @@ export default function CanvasStage() {
     const otherPtsRef = useRef<number[][]>([]);
     // record if a piece is currently in an "allowed overlap" state (overlap fraction >= allowThreshold)
     const overlappedRef = useRef<Record<number, boolean>>({});
+
+    // Strict types for prevBlockedStatus
+    // Use enums for stronger typing and easier comparisons
+    enum BlockModeEnum {
+        Allowed = 'allowed',
+        Blocked = 'blocked',
+    }
+    enum BlockStateEnum {
+        Safe = 'safe',
+        Stick = 'stick',
+        Crossing = 'crossing',
+    }
+    type BlockMode = `${BlockModeEnum}`;
+    type BlockState = `${BlockStateEnum}`;
+    type PrevBlockedStatus = [BlockMode, BlockState];
+    const prevBlockedStatusRef = useRef<Record<number, PrevBlockedStatus>>({});
+
+    // Cache edges for other pieces to avoid repeated getEdgesFromPoints calls
+    const otherEdgesRef = useRef<any[][]>([]);
+
+    // Throttle overlap calculations: store last computed time and value
+    const lastOverlapCalcTimeRef = useRef<number>(0);
+    const lastMovedOverlapFracRef = useRef<number>(0);
+
+    // Debug flag controlled via URL query (e.g. ?debugCollision=1 or ?debugCollision=true)
+    const debugCollision =
+        typeof window !== 'undefined' &&
+        (() => {
+            try {
+                const p = new URLSearchParams(window.location.search);
+                const v = p.get('debugCollision');
+                return v === '1' || v === 'true' || p.has('debugCollision');
+            } catch {
+                return false;
+            }
+        })();
     const stageRef = useRef<Konva.Stage | null>(null);
     // scale certain pixel constants by root font-size so rem changes affect behaviour
     const rootFs =
@@ -147,7 +184,13 @@ export default function CanvasStage() {
     };
 
     // 尝试对单个 piece 执行吸边（点->边、边->边），成功返回 true 并已应用位置
-    const attemptSnap = (p: Piece, newX: number, newY: number, movedPts: number[]) => {
+    const attemptSnap = (
+        p: Piece,
+        newX: number,
+        newY: number,
+        movedPts: number[],
+        snapAllowThreshold = SNAP_ALLOW_THRESHOLD,
+    ) => {
         const aEdges = getEdgesFromPoints(movedPts);
         let snapped = false;
 
@@ -158,7 +201,7 @@ export default function CanvasStage() {
         }
         const movingArea = p.area || 1;
         const overlapFrac = overlapSum / movingArea;
-        if (overlapFrac > SNAP_ALLOW_THRESHOLD) {
+        if (overlapFrac > snapAllowThreshold) {
             return false;
         }
 
@@ -257,7 +300,7 @@ export default function CanvasStage() {
     const touchPanningRef = useRef(false);
     const lastTouchPosRef = useRef<{ x: number; y: number } | null>(null);
 
-    const OVERLAP_THRESHOLD = 0.5;
+    const OVERLAP_THRESHOLD = 0.4;
 
     // 检查事件目标或其父节点链中是否存在 draggable 属性（用于判定是否点中了 piece）
     const isEventOnDraggable = (target: any) => {
@@ -701,10 +744,18 @@ export default function CanvasStage() {
                                     otherPtsRef.current = pieces
                                         .filter((op) => op.id !== p.id)
                                         .map((op) => getTransformedPoints(op));
+                                    // cache edges for other pieces to speed overlap/slide calculations
+                                    otherEdgesRef.current = otherPtsRef.current.map((pts) =>
+                                        getEdgesFromPoints(pts),
+                                    );
+                                    // initialize prevBlockedStatus for this piece
+                                    // default to allowed/safe
+
                                     // detect if piece is already overlapping others beyond allowThreshold
+
+                                    let sum = 0;
                                     try {
                                         const pts = getTransformedPoints(p);
-                                        let sum = 0;
                                         for (const op of otherPtsRef.current) {
                                             sum += calculateOverlapArea(pts, op);
                                         }
@@ -714,6 +765,27 @@ export default function CanvasStage() {
                                         overlappedRef.current[p.id] = frac >= OVERLAP_THRESHOLD;
                                     } catch {
                                         overlappedRef.current[p.id] = false;
+                                    } finally {
+                                        if (sum > 0) {
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Crossing,
+                                            ];
+                                        } else {
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Safe,
+                                            ];
+                                        }
+                                        // debug
+                                        if (debugCollision) {
+                                            console.log(
+                                                'dragStart piece=',
+                                                p.id,
+                                                'prevBlockedStatus=',
+                                                prevBlockedStatusRef.current[p.id],
+                                            );
+                                        }
                                     }
                                 }}
                                 onDragMove={(e) => {
@@ -724,27 +796,21 @@ export default function CanvasStage() {
                                     const tempPiece = { ...p, x: newX, y: newY };
                                     const movedPts = getTransformedPoints(tempPiece);
 
-                                    // compute overlap fraction for moved position
-                                    let overlapSum = 0;
-                                    for (const op of otherPtsRef.current) {
-                                        overlapSum += calculateOverlapArea(movedPts, op);
-                                    }
-                                    const movingArea = p.area || 1;
-                                    const overlapFrac = overlapSum / movingArea;
+                                    // (previous overlap pre-check removed; we compute movedOverlapFrac below)
 
                                     // if currently in allowed-overlap state, skip collision/edge-sliding logic
-                                    if (
-                                        overlappedRef.current[p.id] ||
-                                        overlapFrac >= OVERLAP_THRESHOLD
-                                    ) {
-                                        // mark overlapped mode
-                                        overlappedRef.current[p.id] =
-                                            overlapFrac >= OVERLAP_THRESHOLD;
-                                        // allow free movement while overlapped and record as last safe
-                                        updatePiece(p.id, { x: newX, y: newY });
-                                        lastSafePos.current[p.id] = { x: newX, y: newY };
-                                        return;
-                                    }
+                                    // if (
+                                    //     overlappedRef.current[p.id] ||
+                                    //     overlapFrac >= OVERLAP_THRESHOLD
+                                    // ) {
+                                    //     // mark overlapped mode
+                                    //     overlappedRef.current[p.id] =
+                                    //         overlapFrac >= OVERLAP_THRESHOLD;
+                                    //     // allow free movement while overlapped and record as last safe
+                                    //     updatePiece(p.id, { x: newX, y: newY });
+                                    //     lastSafePos.current[p.id] = { x: newX, y: newY };
+                                    //     return;
+                                    // }
 
                                     // --- 吸边 (snap) 逻辑: 在正式 collision check 前尝试吸附 ---
                                     try {
@@ -754,266 +820,389 @@ export default function CanvasStage() {
                                         // snap error ignored
                                     }
 
-                                    // 使用 SAT.js 检查是否存在阻止性碰撞
-                                    const blocked = checkCollisionsForPiece(
-                                        movedPts,
-                                        otherPtsRef.current,
-                                        pieces.find((pc) => pc.id === p.id)?.area || 0,
-                                        OVERLAP_THRESHOLD,
-                                    );
-                                    if (blocked) {
-                                        // 阻止：把 konva node 回退到上次安全位置
-                                        const safe = lastSafePos.current[p.id];
-                                        if (safe && groupRefs.current[p.id]) {
-                                            // 尝试寻找从 safe -> 当前移动点之间的最近不重叠点
-                                            const targetPos = { x: newX, y: newY };
-                                            const startPos = { x: safe.x, y: safe.y };
+                                    // New collision handling per prevBlockedStatusRef state
+                                    const prev: PrevBlockedStatus = prevBlockedStatusRef.current[
+                                        p.id
+                                    ] || [BlockModeEnum.Allowed, BlockStateEnum.Safe];
+                                    const wasMode: BlockMode = prev[0];
+                                    const wasState: BlockState = prev[1];
 
-                                            // helper: compute overlap sum against all other pieces
-                                            const overlapAt = (x: number, y: number) => {
-                                                const candidate = { ...p, x, y };
-                                                const candPts = getTransformedPoints(candidate);
-                                                let sum = 0;
-                                                for (const op of otherPtsRef.current) {
-                                                    sum += calculateOverlapArea(candPts, op);
-                                                }
-                                                return sum;
-                                            };
+                                    // (no-op) we compute overlap fraction below for decision making
 
-                                            // If safe already has zero overlap, just snap to safe
-                                            const safeOverlap = overlapAt(startPos.x, startPos.y);
-
-                                            // If target has overlap, we search along the segment for the closest point to target with overlap === 0
-                                            const targetOverlap = overlapAt(
-                                                targetPos.x,
-                                                targetPos.y,
+                                    // More precise collision detection value: overlap sum and fraction
+                                    const now =
+                                        typeof performance !== 'undefined'
+                                            ? performance.now()
+                                            : Date.now();
+                                    const THROTTLE_MS = 50;
+                                    let movedOverlapFrac: number;
+                                    if (now - lastOverlapCalcTimeRef.current < THROTTLE_MS) {
+                                        movedOverlapFrac = lastMovedOverlapFracRef.current;
+                                    } else {
+                                        let overlapSumForMoved = 0;
+                                        for (const op of otherPtsRef.current) {
+                                            overlapSumForMoved += calculateOverlapArea(
+                                                movedPts,
+                                                op,
                                             );
+                                        }
+                                        movedOverlapFrac = overlapSumForMoved / (p.area || 1);
+                                        lastOverlapCalcTimeRef.current = now;
+                                        lastMovedOverlapFracRef.current = movedOverlapFrac;
+                                    }
 
-                                            let foundPos = startPos;
+                                    if (debugCollision) {
+                                        console.log(
+                                            `dragMove piece=${p.id} prev=`,
+                                            prev,
+                                            'movedOverlapFrac=',
+                                            movedOverlapFrac,
+                                        );
+                                    }
 
-                                            if (safeOverlap <= 0 && targetOverlap > 0) {
-                                                // binary search on t in [0,1], where pos = start + t*(target-start)
-                                                let lo = 0;
-                                                let hi = 1;
-                                                // Do a limited number of iterations for performance
-                                                for (let iter = 0; iter < 24; iter++) {
-                                                    const mid = (lo + hi) / 2;
-                                                    const mx =
-                                                        startPos.x +
-                                                        (targetPos.x - startPos.x) * mid;
-                                                    const my =
-                                                        startPos.y +
-                                                        (targetPos.y - startPos.y) * mid;
-                                                    const ov = overlapAt(mx, my);
-                                                    if (ov > 0) {
-                                                        // overlapping, reduce move
-                                                        hi = mid;
-                                                    } else {
-                                                        lo = mid;
-                                                    }
-                                                }
-                                                const t = lo;
-                                                foundPos = {
-                                                    x: startPos.x + (targetPos.x - startPos.x) * t,
-                                                    y: startPos.y + (targetPos.y - startPos.y) * t,
-                                                };
-                                                // --- 接触边检测与沿边滑动逻辑 ---
-                                                try {
-                                                    // transformed points at foundPos
-                                                    const cand = {
-                                                        ...p,
-                                                        x: foundPos.x,
-                                                        y: foundPos.y,
-                                                    };
-                                                    const candPts = getTransformedPoints(cand);
-                                                    const candEdges = getEdgesFromPoints(candPts);
+                                    // If the moved overlap is small but non-zero, try snapping back to edges.
+                                    // This helps the case where a piece is briefly pulled out of a tight
+                                    // enclosure and the user wants it to 'stick' back to an edge.
+                                    if (movedOverlapFrac > 0 && movedOverlapFrac < 0.05) {
+                                        try {
+                                            if (debugCollision) {
+                                                console.log(
+                                                    `dragMove attemptSnap-for-small-overlap piece=${p.id} movedOverlapFrac=${movedOverlapFrac}`,
+                                                );
+                                            }
+                                            if (attemptSnap(p, newX, newY, movedPts, 0.05)) return;
+                                        } catch {
+                                            // ignore snap errors
+                                        }
+                                    }
 
-                                                    // find the closest edge pair between candidate and other pieces
-                                                    let best = {
-                                                        dist: Infinity,
-                                                        which: 'none' as 'aEdge' | 'bEdge' | 'none',
-                                                        aEdge: null as any,
-                                                        bEdge: null as any,
-                                                    };
-
-                                                    // (distPointToSeg removed; using pointSegDist below)
-
-                                                    // simple point->segment distance helper (robust)
-                                                    const pointSegDist = (
-                                                        px: number,
-                                                        py: number,
-                                                        ax: number,
-                                                        ay: number,
-                                                        bx: number,
-                                                        by: number,
-                                                    ) => {
-                                                        const vx = bx - ax;
-                                                        const vy = by - ay;
-                                                        const wx = px - ax;
-                                                        const wy = py - ay;
-                                                        const c1 = vx * wx + vy * wy;
-                                                        const c2 = vx * vx + vy * vy;
-                                                        let t = 0;
-                                                        if (c2 > 1e-12)
-                                                            t = Math.max(0, Math.min(1, c1 / c2));
-                                                        const cx = ax + vx * t;
-                                                        const cy = ay + vy * t;
-                                                        const dx = px - cx;
-                                                        const dy = py - cy;
-                                                        return Math.hypot(dx, dy);
-                                                    };
-
-                                                    for (const opPts of otherPtsRef.current) {
-                                                        const otherEdges =
-                                                            getEdgesFromPoints(opPts);
-                                                        for (const ae of candEdges) {
-                                                            for (const be of otherEdges) {
-                                                                // compute minimal of endpoint-to-segment distances
-                                                                const dA1 = pointSegDist(
-                                                                    ae.ax,
-                                                                    ae.ay,
-                                                                    be.ax,
-                                                                    be.ay,
-                                                                    be.bx,
-                                                                    be.by,
-                                                                );
-                                                                const dA2 = pointSegDist(
-                                                                    ae.bx,
-                                                                    ae.by,
-                                                                    be.ax,
-                                                                    be.ay,
-                                                                    be.bx,
-                                                                    be.by,
-                                                                );
-                                                                const dB1 = pointSegDist(
-                                                                    be.ax,
-                                                                    be.ay,
-                                                                    ae.ax,
-                                                                    ae.ay,
-                                                                    ae.bx,
-                                                                    ae.by,
-                                                                );
-                                                                const dB2 = pointSegDist(
-                                                                    be.bx,
-                                                                    be.by,
-                                                                    ae.ax,
-                                                                    ae.ay,
-                                                                    ae.bx,
-                                                                    ae.by,
-                                                                );
-                                                                const localMin = Math.min(
-                                                                    dA1,
-                                                                    dA2,
-                                                                    dB1,
-                                                                    dB2,
-                                                                );
-                                                                if (localMin < best.dist) {
-                                                                    let which:
-                                                                        | 'aEdge'
-                                                                        | 'bEdge'
-                                                                        | 'none' = 'none';
-                                                                    // determine whether contact is on A's edge or B's edge by which distance was minimal
-                                                                    if (
-                                                                        localMin === dB1 ||
-                                                                        localMin === dB2
-                                                                    )
-                                                                        which = 'aEdge';
-                                                                    else if (
-                                                                        localMin === dA1 ||
-                                                                        localMin === dA2
-                                                                    )
-                                                                        which = 'bEdge';
-                                                                    best = {
-                                                                        dist: localMin,
-                                                                        which,
-                                                                        aEdge: ae,
-                                                                        bEdge: be,
-                                                                    };
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-
-                                                    if (
-                                                        best.which !== 'none' &&
-                                                        best.dist <= CONTACT_EPS
-                                                    ) {
-                                                        // choose edge to slide along
-                                                        const edge =
-                                                            best.which === 'aEdge'
-                                                                ? best.aEdge
-                                                                : best.bEdge;
-                                                        const ex = edge.bx - edge.ax;
-                                                        const ey = edge.by - edge.ay;
-                                                        const len = Math.hypot(ex, ey) || 1;
-                                                        const dir = {
-                                                            x: ex / len,
-                                                            y: ey / len,
-                                                        };
-
-                                                        // desired delta from foundPos to target
-                                                        const dx = targetPos.x - foundPos.x;
-                                                        const dy = targetPos.y - foundPos.y;
-                                                        // projection onto edge direction
-                                                        const proj = dx * dir.x + dy * dir.y;
-                                                        // if projection negative, allow sliding opposite direction as well
-                                                        // attempt to move along dir by proj, but clamp to non-overlap via binary search
-                                                        const maxMove = Math.abs(proj);
-                                                        if (maxMove > 1e-3) {
-                                                            let loS = 0;
-                                                            let hiS = maxMove;
-                                                            // binary search on scalar magnitude
-                                                            for (let it = 0; it < 18; it++) {
-                                                                const midS = (loS + hiS) / 2;
-                                                                const sign = proj >= 0 ? 1 : -1;
-                                                                const nx =
-                                                                    foundPos.x +
-                                                                    dir.x * midS * sign;
-                                                                const ny =
-                                                                    foundPos.y +
-                                                                    dir.y * midS * sign;
-                                                                const ov = overlapAt(nx, ny);
-                                                                if (ov > 0) {
-                                                                    // overlapping, reduce move
-                                                                    hiS = midS;
-                                                                } else {
-                                                                    loS = midS;
-                                                                }
-                                                            }
-                                                            const finalS =
-                                                                loS * (proj >= 0 ? 1 : -1);
-                                                            foundPos = {
-                                                                x: foundPos.x + dir.x * finalS,
-                                                                y: foundPos.y + dir.y * finalS,
-                                                            };
-                                                        }
-                                                    }
-                                                } catch {
-                                                    // ignore sliding failure and fallback to foundPos
-                                                }
-                                            } else if (safeOverlap <= 0 && targetOverlap <= 0) {
-                                                // both safe and target have no overlap -> accept target
-                                                foundPos = targetPos;
-                                            } else {
-                                                // fallback: just use safe
-                                                foundPos = startPos;
+                                    // Behavior split
+                                    if (
+                                        (wasMode === BlockModeEnum.Allowed ||
+                                            wasMode === BlockModeEnum.Blocked) &&
+                                        (wasState === BlockStateEnum.Safe ||
+                                            wasState === BlockStateEnum.Stick)
+                                    ) {
+                                        // checkCollisionsForPiece1 logic
+                                        if (movedOverlapFrac >= OVERLAP_THRESHOLD) {
+                                            // ① allow crossing
+                                            if (debugCollision) {
+                                                console.log(
+                                                    `dragMove decision=allow-crossing piece=${p.id}`,
+                                                );
+                                            }
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Crossing,
+                                            ];
+                                            // allow movement
+                                            updatePiece(p.id, { x: newX, y: newY });
+                                            lastSafePos.current[p.id] = { x: newX, y: newY };
+                                            // mark overlappedRef if large
+                                            overlappedRef.current[p.id] = true;
+                                        } else if (
+                                            movedOverlapFrac > 0 &&
+                                            movedOverlapFrac < OVERLAP_THRESHOLD
+                                        ) {
+                                            // ② blocked, stick
+                                            if (debugCollision) {
+                                                console.log(
+                                                    `dragMove decision=blocked-stick piece=${p.id}`,
+                                                );
                                             }
 
-                                            groupRefs.current[p.id].position({
-                                                x: foundPos.x,
-                                                y: foundPos.y,
-                                            });
-                                            // 同步 store（确保状态一致）
-                                            updatePiece(p.id, {
-                                                x: foundPos.x,
-                                                y: foundPos.y,
-                                            });
-                                            lastSafePos.current[p.id] = foundPos;
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Blocked,
+                                                BlockStateEnum.Stick,
+                                            ];
+                                            // revert to safe position / attempt sliding to nearest non-overlap
+                                            const safe = lastSafePos.current[p.id];
+                                            if (safe && groupRefs.current[p.id]) {
+                                                // reuse existing sliding logic by searching along segment
+                                                const targetPos = { x: newX, y: newY };
+                                                const startPos = { x: safe.x, y: safe.y };
+                                                const overlapAt = (x: number, y: number) => {
+                                                    const candidate = { ...p, x, y };
+                                                    const candPts = getTransformedPoints(candidate);
+                                                    let sum = 0;
+                                                    for (const op of otherPtsRef.current)
+                                                        sum += calculateOverlapArea(candPts, op);
+                                                    return sum;
+                                                };
+                                                const safeOverlap = overlapAt(
+                                                    startPos.x,
+                                                    startPos.y,
+                                                );
+                                                const targetOverlap = overlapAt(
+                                                    targetPos.x,
+                                                    targetPos.y,
+                                                );
+                                                let foundPos = startPos;
+                                                if (safeOverlap <= 0 && targetOverlap > 0) {
+                                                    let lo = 0;
+                                                    let hi = 1;
+                                                    for (let iter = 0; iter < 12; iter++) {
+                                                        const mid = (lo + hi) / 2;
+                                                        const mx =
+                                                            startPos.x +
+                                                            (targetPos.x - startPos.x) * mid;
+                                                        const my =
+                                                            startPos.y +
+                                                            (targetPos.y - startPos.y) * mid;
+                                                        const ov = overlapAt(mx, my);
+                                                        if (ov > 0) hi = mid;
+                                                        else lo = mid;
+                                                    }
+                                                    const t = lo;
+                                                    foundPos = {
+                                                        x:
+                                                            startPos.x +
+                                                            (targetPos.x - startPos.x) * t,
+                                                        y:
+                                                            startPos.y +
+                                                            (targetPos.y - startPos.y) * t,
+                                                    };
+                                                    // try sliding along edges (keep original logic)
+                                                    try {
+                                                        const cand = {
+                                                            ...p,
+                                                            x: foundPos.x,
+                                                            y: foundPos.y,
+                                                        };
+                                                        const candPts = getTransformedPoints(cand);
+                                                        const candEdges =
+                                                            getEdgesFromPoints(candPts);
+                                                        let best = {
+                                                            dist: Infinity,
+                                                            which: 'none' as
+                                                                | 'aEdge'
+                                                                | 'bEdge'
+                                                                | 'none',
+                                                            aEdge: null as any,
+                                                            bEdge: null as any,
+                                                        };
+                                                        const pointSegDist = (
+                                                            px: number,
+                                                            py: number,
+                                                            ax: number,
+                                                            ay: number,
+                                                            bx: number,
+                                                            by: number,
+                                                        ) => {
+                                                            const vx = bx - ax;
+                                                            const vy = by - ay;
+                                                            const wx = px - ax;
+                                                            const wy = py - ay;
+                                                            const c1 = vx * wx + vy * wy;
+                                                            const c2 = vx * vx + vy * vy;
+                                                            let t = 0;
+                                                            if (c2 > 1e-12)
+                                                                t = Math.max(
+                                                                    0,
+                                                                    Math.min(1, c1 / c2),
+                                                                );
+                                                            const cx = ax + vx * t;
+                                                            const cy = ay + vy * t;
+                                                            const dx = px - cx;
+                                                            const dy = py - cy;
+                                                            return Math.hypot(dx, dy);
+                                                        };
+                                                        for (const opPts of otherPtsRef.current) {
+                                                            const otherEdges =
+                                                                getEdgesFromPoints(opPts);
+                                                            for (const ae of candEdges) {
+                                                                for (const be of otherEdges) {
+                                                                    const dA1 = pointSegDist(
+                                                                        ae.ax,
+                                                                        ae.ay,
+                                                                        be.ax,
+                                                                        be.ay,
+                                                                        be.bx,
+                                                                        be.by,
+                                                                    );
+                                                                    const dA2 = pointSegDist(
+                                                                        ae.bx,
+                                                                        ae.by,
+                                                                        be.ax,
+                                                                        be.ay,
+                                                                        be.bx,
+                                                                        be.by,
+                                                                    );
+                                                                    const dB1 = pointSegDist(
+                                                                        be.ax,
+                                                                        be.ay,
+                                                                        ae.ax,
+                                                                        ae.ay,
+                                                                        ae.bx,
+                                                                        ae.by,
+                                                                    );
+                                                                    const dB2 = pointSegDist(
+                                                                        be.bx,
+                                                                        be.by,
+                                                                        ae.ax,
+                                                                        ae.ay,
+                                                                        ae.bx,
+                                                                        ae.by,
+                                                                    );
+                                                                    const localMin = Math.min(
+                                                                        dA1,
+                                                                        dA2,
+                                                                        dB1,
+                                                                        dB2,
+                                                                    );
+                                                                    if (localMin < best.dist) {
+                                                                        let which:
+                                                                            | 'aEdge'
+                                                                            | 'bEdge'
+                                                                            | 'none' = 'none';
+                                                                        if (
+                                                                            localMin === dB1 ||
+                                                                            localMin === dB2
+                                                                        )
+                                                                            which = 'aEdge';
+                                                                        else if (
+                                                                            localMin === dA1 ||
+                                                                            localMin === dA2
+                                                                        )
+                                                                            which = 'bEdge';
+                                                                        best = {
+                                                                            dist: localMin,
+                                                                            which,
+                                                                            aEdge: ae,
+                                                                            bEdge: be,
+                                                                        };
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                        if (
+                                                            best.which !== 'none' &&
+                                                            best.dist <= CONTACT_EPS
+                                                        ) {
+                                                            const edge =
+                                                                best.which === 'aEdge'
+                                                                    ? best.aEdge
+                                                                    : best.bEdge;
+                                                            const ex = edge.bx - edge.ax;
+                                                            const ey = edge.by - edge.ay;
+                                                            const len = Math.hypot(ex, ey) || 1;
+                                                            const dir = {
+                                                                x: ex / len,
+                                                                y: ey / len,
+                                                            };
+                                                            const dx = targetPos.x - foundPos.x;
+                                                            const dy = targetPos.y - foundPos.y;
+                                                            const proj = dx * dir.x + dy * dir.y;
+                                                            const maxMove = Math.abs(proj);
+                                                            if (maxMove > 1e-3) {
+                                                                let loS = 0;
+                                                                let hiS = maxMove;
+                                                                for (let it = 0; it < 10; it++) {
+                                                                    const midS = (loS + hiS) / 2;
+                                                                    const sign = proj >= 0 ? 1 : -1;
+                                                                    const nx =
+                                                                        foundPos.x +
+                                                                        dir.x * midS * sign;
+                                                                    const ny =
+                                                                        foundPos.y +
+                                                                        dir.y * midS * sign;
+                                                                    const ov = overlapAt(nx, ny);
+                                                                    if (ov > 0) hiS = midS;
+                                                                    else loS = midS;
+                                                                }
+                                                                const finalS =
+                                                                    loS * (proj >= 0 ? 1 : -1);
+                                                                foundPos = {
+                                                                    x: foundPos.x + dir.x * finalS,
+                                                                    y: foundPos.y + dir.y * finalS,
+                                                                };
+                                                            }
+                                                        }
+                                                    } catch {
+                                                        // ignore
+                                                    }
+                                                } else if (safeOverlap <= 0 && targetOverlap <= 0) {
+                                                    foundPos = targetPos;
+                                                } else {
+                                                    foundPos = startPos;
+                                                }
+                                                groupRefs.current[p.id].position({
+                                                    x: foundPos.x,
+                                                    y: foundPos.y,
+                                                });
+                                                updatePiece(p.id, { x: foundPos.x, y: foundPos.y });
+                                                lastSafePos.current[p.id] = foundPos;
+                                            }
+                                        } else {
+                                            // ③ no collision: safe
+                                            if (debugCollision) {
+                                                console.log(`dragMove decision=safe piece=${p.id}`);
+                                            }
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Safe,
+                                            ];
+                                            updatePiece(p.id, { x: newX, y: newY });
+                                            lastSafePos.current[p.id] = { x: newX, y: newY };
+                                        }
+                                    } else if (
+                                        wasMode === BlockModeEnum.Allowed &&
+                                        wasState === BlockStateEnum.Crossing
+                                    ) {
+                                        // checkCollisionsForPiece2 logic
+                                        if (movedOverlapFrac > 0) {
+                                            // ① continue allowing crossing
+                                            if (debugCollision) {
+                                                console.log(
+                                                    `dragMove continue-crossing piece=${p.id}`,
+                                                );
+                                            }
+
+                                            // keep prev as ['allowed','crossing']
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Crossing,
+                                            ];
+                                            updatePiece(p.id, { x: newX, y: newY });
+                                            lastSafePos.current[p.id] = { x: newX, y: newY };
+                                            overlappedRef.current[p.id] = true;
+                                        } else {
+                                            // ② now safe
+                                            if (debugCollision) {
+                                                console.log(
+                                                    `dragMove crossing->safe piece=${p.id}`,
+                                                );
+                                            }
+                                            prevBlockedStatusRef.current[p.id] = [
+                                                BlockModeEnum.Allowed,
+                                                BlockStateEnum.Safe,
+                                            ];
+                                            updatePiece(p.id, { x: newX, y: newY });
+                                            lastSafePos.current[p.id] = { x: newX, y: newY };
+                                            overlappedRef.current[p.id] = false;
                                         }
                                     } else {
-                                        // 允许：更新位置并记录为新的安全点
-                                        updatePiece(p.id, { x: newX, y: newY });
-                                        lastSafePos.current[p.id] = { x: newX, y: newY };
+                                        // default fallback to previous behavior: if any blocking, revert to safe
+                                        const blocked = checkCollisionsForPiece(
+                                            movedPts,
+                                            otherPtsRef.current,
+                                            pieces.find((pc) => pc.id === p.id)?.area || 0,
+                                            OVERLAP_THRESHOLD,
+                                        );
+                                        if (blocked) {
+                                            const safe = lastSafePos.current[p.id];
+                                            if (safe && groupRefs.current[p.id]) {
+                                                groupRefs.current[p.id].position({
+                                                    x: safe.x,
+                                                    y: safe.y,
+                                                });
+                                                updatePiece(p.id, { x: safe.x, y: safe.y });
+                                                lastSafePos.current[p.id] = safe;
+                                            }
+                                        } else {
+                                            updatePiece(p.id, { x: newX, y: newY });
+                                            lastSafePos.current[p.id] = { x: newX, y: newY };
+                                        }
                                     }
                                 }}
                                 onDragEnd={(e) => {

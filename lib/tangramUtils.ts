@@ -678,13 +678,21 @@ export const calculateOverlapArea = (ptsA: number[], ptsB: number[]) => {
     return calculatePolygonArea(intersectionPolygon);
 };
 
-// 判断是否应该阻止碰撞（用于拖拽时检测）。
-// 当碰撞重叠小于 allowThreshold 时，阻止移动；否则允许强行穿过。
+/**
+ * @description 判断是否应该阻止碰撞（用于拖拽时检测）。
+ * 没有重叠区域 => 不阻止碰撞
+ * 有重叠区域 && overlapArea / movingArea < allowThreshold => 阻止碰撞(贴边停住)
+ * 有重叠区域 && overlapArea / movingArea >= allowThreshold => 允许碰撞(上方穿过)
+ * @param movingPts
+ * @param otherPts
+ * @param movingArea
+ * @param allowThreshold
+ */
 export const shouldBlockCollision = (
     movingPts: number[],
     otherPts: number[],
     movingArea: number,
-    allowThreshold = 0.25,
+    allowThreshold: number,
 ) => {
     const intersect = polygonIntersectionSAT(movingPts, otherPts);
     if (!intersect) return false;
@@ -699,7 +707,7 @@ export const checkCollisionsForPiece = (
     piecePts: number[],
     otherPiecesPts: number[][],
     movingArea: number,
-    allowThreshold = 0.25,
+    allowThreshold: number,
 ) => {
     for (const op of otherPiecesPts) {
         if (shouldBlockCollision(piecePts, op, movingArea, allowThreshold)) {
