@@ -78,6 +78,27 @@ export const getEdgesFromPoints = (pts: number[]) => {
 // - canvasSize: { width, height } in pixels
 // - stageTransform: optional { x, y, scale } representing current stage.position and stage.scaleX
 // If stageTransform is provided, we map the screen center into world coordinates; otherwise we perform a best-effort placement in pixel space.
+export const computeRightRadio = (canvasSize: { width: number; height: number }) => {
+    // Two sample points (aspect ratio -> rightRadio):
+    // ar1 = 3840/2160 -> radio1 = 0.55
+    // ar2 = 1366/1024 -> radio2 = 0.35
+    const w = canvasSize.width || 0;
+    const h = canvasSize.height || 0;
+    if (w <= 0 || h <= 0) return 0.35;
+    const ar = w / h;
+    const ar1 = 3840 / 2160; // ~1.7777778
+    const ar2 = 1366 / 1024; // ~1.3330078
+    const r1 = 0.55;
+    const r2 = 0.35;
+    // linear interpolation: radio = m * ar + b, solve using two points
+    const m = (r1 - r2) / (ar1 - ar2);
+    const b = r1 - m * ar1;
+    let radio = m * ar + b;
+    // clamp to reasonable bounds
+    radio = Math.max(0.2, Math.min(0.8, radio));
+    return radio;
+};
+
 export const placePiecesInRightArea = (
     pieces: Piece[],
     canvasSize: { width: number; height: number },
@@ -104,7 +125,9 @@ export const placePiecesInRightArea = (
     const piecesCenterX = (pminX + pmaxX) / 2;
     const piecesCenterY = (pminY + pmaxY) / 2;
 
-    const leftAreaW = (canvasSize.width || 0) * 0.6;
+    // compute right area ratio dynamically based on canvas aspect ratio
+    const rightRadio = computeRightRadio(canvasSize);
+    const leftAreaW = (canvasSize.width || 0) * (1 - rightRadio);
     const rightAreaLeft = leftAreaW;
     const rightAreaW = Math.max(0, (canvasSize.width || 0) - rightAreaLeft);
     const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
@@ -124,6 +147,7 @@ export const placePiecesInRightArea = (
     return pieces.map((p) => ({ ...p, x: (p.x || 0) + offsetX, y: (p.y || 0) + offsetY }));
 };
 
+export const DESIRED_RADIO = 0.75;
 // Compute a stage transform (position + uniform scale) that fits the given target polygons
 // into the left 60% area of the canvas, using the same algorithm as CanvasStage's fit logic.
 export const computeStageTransformForTargets = (
@@ -159,8 +183,8 @@ export const computeStageTransformForTargets = (
     const leftAreaW = (canvasSize.width || 0) * 0.6;
     const leftAreaH = canvasSize.height || bboxH;
 
-    const desiredByHeight = (canvasSize.height || 0) * 0.66;
-    const desiredByLeftWidth = leftAreaW * 0.66;
+    const desiredByHeight = (canvasSize.height || 0) * DESIRED_RADIO;
+    const desiredByLeftWidth = leftAreaW * DESIRED_RADIO;
     const targetDisplay = Math.max(desiredByHeight, desiredByLeftWidth);
 
     const scaleForW = targetDisplay / bboxW;

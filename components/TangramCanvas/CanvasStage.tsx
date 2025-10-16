@@ -11,6 +11,7 @@ import {
     checkCollisionsForPiece,
     computeCoverage,
     defaultTangram,
+    DESIRED_RADIO,
     findSnapForPiece,
     getEdgesFromPoints,
     getTransformedPoints,
@@ -445,8 +446,8 @@ export default function CanvasStage() {
         const leftAreaH = size.height || bboxH;
 
         // desired display sizes
-        const desiredByHeight = (size.height || 0) * 0.66; // 66% of page height
-        const desiredByLeftWidth = leftAreaW * 0.66; // 66% of left-area width
+        const desiredByHeight = (size.height || 0) * DESIRED_RADIO; // 66% of page height
+        const desiredByLeftWidth = leftAreaW * DESIRED_RADIO; // 66% of left-area width
 
         // choose the larger target display dimension and compute uniform scale
         const targetDisplay = Math.max(desiredByHeight, desiredByLeftWidth);
