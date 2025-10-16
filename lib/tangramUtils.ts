@@ -179,6 +179,63 @@ export const computeStageTransformForTargets = (
     return { x: stageX, y: stageY, scale: finalScale };
 };
 
+// Compute a stage transform (position + uniform scale) that fits the given pieces
+// into the right area (right 40% of canvas) so that the pieces' bbox occupies
+// approximately `occupyFraction` (default 0.6) of that area's width/height.
+export const computeStageTransformForPiecesRightArea = (
+    canvasSize: { width: number; height: number },
+    pieces: Piece[] | undefined,
+    occupyFraction = 0.6,
+) => {
+    const ps = pieces || [];
+    if (ps.length === 0) return { x: 0, y: 0, scale: 1 };
+
+    // compute bbox of pieces in world coords
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const p of ps) {
+        const pts = getTransformedPoints(p);
+        for (let i = 0; i < pts.length; i += 2) {
+            const x = pts[i];
+            const y = pts[i + 1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+    }
+    if (!Number.isFinite(minX)) return { x: 0, y: 0, scale: 1 };
+
+    const bboxW = Math.max(1, maxX - minX);
+    const bboxH = Math.max(1, maxY - minY);
+    const bboxCenterX = (minX + maxX) / 2;
+    const bboxCenterY = (minY + maxY) / 2;
+
+    // define right area
+    const leftAreaW = (canvasSize.width || 0) * 0.6;
+    const rightAreaLeft = leftAreaW;
+    const rightAreaW = Math.max(0, (canvasSize.width || 0) - rightAreaLeft);
+    const rightCenterX = rightAreaLeft + rightAreaW / 2;
+    const rightCenterY = (canvasSize.height || 0) / 2;
+
+    // desired display inside right area
+    const desiredByWidth = rightAreaW * occupyFraction;
+    const desiredByHeight = (canvasSize.height || 0) * occupyFraction;
+    const targetDisplay = Math.max(desiredByWidth, desiredByHeight);
+
+    const scaleForW = targetDisplay / bboxW;
+    const scaleForH = targetDisplay / bboxH;
+    const chosenScale = Math.min(scaleForW, scaleForH);
+    const finalScale = Math.max(0.0001, chosenScale * 0.95);
+
+    const stageX = rightCenterX - bboxCenterX * finalScale;
+    const stageY = rightCenterY - bboxCenterY * finalScale;
+
+    return { x: stageX, y: stageY, scale: finalScale };
+};
+
 export const angleDiff = (a: number, b: number) => {
     let d = Math.abs(((a - b) % 360) + 360) % 360;
     if (d > 180) d = 360 - d;

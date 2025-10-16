@@ -39,6 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import {
     computeCoverage,
+    computeStageTransformForPiecesRightArea,
     computeStageTransformForTargets,
     defaultTangram,
     generateThumbnail,
@@ -756,10 +757,19 @@ export default function Sidebar() {
                                         }
                                         // compute a stageTransform consistent with CanvasStage
                                         const st = useTangramStore.getState();
-                                        const stageTransform = computeStageTransformForTargets(
-                                            st.size || { width: 0, height: 0 },
-                                            st.problemTargets[st.selectedProblem] || [],
-                                        );
+                                        const selTargets =
+                                            st.problemTargets[st.selectedProblem] || [];
+                                        const stageTransform =
+                                            selTargets.length === 0
+                                                ? computeStageTransformForPiecesRightArea(
+                                                      st.size || { width: 0, height: 0 },
+                                                      originPieces,
+                                                      0.6,
+                                                  )
+                                                : computeStageTransformForTargets(
+                                                      st.size || { width: 0, height: 0 },
+                                                      selTargets,
+                                                  );
                                         const piecesForRight = placePiecesInRightArea(
                                             originPieces,
                                             st.size || { width: 0, height: 0 },

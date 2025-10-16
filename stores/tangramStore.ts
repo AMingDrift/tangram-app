@@ -7,6 +7,7 @@ import type { Piece } from '@/lib/tangramUtils';
 
 import {
     computeCoverage,
+    computeStageTransformForPiecesRightArea,
     computeStageTransformForTargets,
     defaultTangram,
     generateThumbnail,
@@ -148,9 +149,11 @@ export const useTangramStore = create<TangramState>()(
                 startCreation: () =>
                     set((_state) => {
                         const prev = _state.selectedProblem ?? '';
-                        const stageTransform = computeStageTransformForTargets(
+                        // compute a stage transform that fits the default tangram into the right area
+                        const stageTransform = computeStageTransformForPiecesRightArea(
                             _state.size || { width: 0, height: 0 },
-                            undefined,
+                            defaultTangram(),
+                            0.6,
                         );
                         const pieces = placePiecesInRightArea(
                             defaultTangram(),
@@ -178,7 +181,15 @@ export const useTangramStore = create<TangramState>()(
                         let pieces = placePiecesInRightArea(
                             defaultTangram(),
                             _state.size || { width: 0, height: 0 },
-                            stageTransform,
+                            // if there are no targets for previous selection, compute a pieces-based stage transform
+                            (_state.problemTargets[_state.previousSelectedProblem || ''] || [])
+                                .length === 0
+                                ? computeStageTransformForPiecesRightArea(
+                                      _state.size || { width: 0, height: 0 },
+                                      defaultTangram(),
+                                      0.6,
+                                  )
+                                : stageTransform,
                         );
                         try {
                             if (
@@ -267,10 +278,19 @@ export const useTangramStore = create<TangramState>()(
                         // Also initialize pieces so that importing a file where the first problem has empty targets
                         // still results in visible pieces on the right area.
                         const firstSelected = newProblems.length > 0 ? newProblems[0].id : '';
-                        const initialStageTransform = computeStageTransformForTargets(
-                            _state.size || { width: 0, height: 0 },
-                            newProblemTargets[newProblems.length > 0 ? newProblems[0].id : ''],
-                        );
+                        const firstId = newProblems.length > 0 ? newProblems[0].id : '';
+                        const firstTargets = newProblemTargets[firstId] || [];
+                        const initialStageTransform =
+                            firstTargets.length === 0
+                                ? computeStageTransformForPiecesRightArea(
+                                      _state.size || { width: 0, height: 0 },
+                                      defaultTangram(),
+                                      0.6,
+                                  )
+                                : computeStageTransformForTargets(
+                                      _state.size || { width: 0, height: 0 },
+                                      firstTargets,
+                                  );
                         const initialPieces = placePiecesInRightArea(
                             defaultTangram(),
                             _state.size || { width: 0, height: 0 },
@@ -278,6 +298,7 @@ export const useTangramStore = create<TangramState>()(
                         );
 
                         return {
+                            drafts: {},
                             problems: newProblems,
                             problemTargets: newProblemTargets,
                             thumbnails: newThumbnails,
@@ -360,10 +381,18 @@ export const useTangramStore = create<TangramState>()(
                             ) {
                                 newPieces = (state.drafts || {})[newSelected];
                             } else {
-                                const stageTransform = computeStageTransformForTargets(
-                                    state.size || { width: 0, height: 0 },
-                                    newProblemTargets[newSelected] || [],
-                                );
+                                const selTargets = newProblemTargets[newSelected] || [];
+                                const stageTransform =
+                                    selTargets.length === 0
+                                        ? computeStageTransformForPiecesRightArea(
+                                              state.size || { width: 0, height: 0 },
+                                              defaultTangram(),
+                                              0.6,
+                                          )
+                                        : computeStageTransformForTargets(
+                                              state.size || { width: 0, height: 0 },
+                                              selTargets,
+                                          );
                                 newPieces = placePiecesInRightArea(
                                     defaultTangram(),
                                     state.size || { width: 0, height: 0 },

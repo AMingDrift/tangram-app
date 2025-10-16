@@ -28,6 +28,8 @@ export default function CanvasStage() {
         setCoverage,
         targetPieces,
         selectedProblemTargets,
+        drafts,
+        selectedProblem,
     } = useTangramStore(
         useShallow((state) => ({
             pieces: state.pieces,
@@ -38,6 +40,8 @@ export default function CanvasStage() {
             setCoverage: state.setCoverage,
             targetPieces: state.targetPieces,
             selectedProblemTargets: state.problemTargets[state.selectedProblem] ?? null,
+            drafts: state.drafts,
+            selectedProblem: state.selectedProblem,
         })),
     );
 
@@ -461,22 +465,108 @@ export default function CanvasStage() {
         const leftCenterX = leftAreaW / 2;
         const centerY = (leftAreaH || 0) / 2;
 
-        const stageX = leftCenterX - bboxCenterX * finalScale;
-        const stageY = centerY - bboxCenterY * finalScale;
+        // default stage transform (for targets -> left area)
+        let stageX = leftCenterX - bboxCenterX * finalScale;
+        let stageY = centerY - bboxCenterY * finalScale;
+        let stageScale = finalScale;
 
         // compute initial pieces layout for the right 40% area and center them there
         const originPieces = defaultTangram();
 
-        // If a transient draft exists for the currently selected problem, do NOT overwrite it.
-        // This ensures that when Sidebar restores a saved draft after switching back to a
-        // problem, CanvasStage's initialization won't immediately overwrite the draft.
-        try {
-            const st = useTangramStore.getState();
-            const sel = st.selectedProblem;
-            const draftForSel = sel ? st.drafts?.[sel] : null;
-            if (sel && draftForSel && Array.isArray(draftForSel) && draftForSel.length > 0) {
-                // there's a draft for the selected problem -> skip initial placement
-            } else {
+        // If there is no targets (creation mode or empty problem), compute a stage transform
+        // that fits the originPieces into the right 40% area such that their bbox occupies
+        // ~60% of the right area's width/height. This prevents pieces from appearing too small.
+        if (!hasTargets) {
+            // compute bbox / center of origin pieces in world coordinates
+            let pminX = Infinity;
+            let pminY = Infinity;
+            let pmaxX = -Infinity;
+            let pmaxY = -Infinity;
+            for (const op of originPieces) {
+                const pts = getTransformedPoints(op);
+                for (let i = 0; i < pts.length; i += 2) {
+                    const x = pts[i];
+                    const y = pts[i + 1];
+                    if (x < pminX) pminX = x;
+                    if (y < pminY) pminY = y;
+                    if (x > pmaxX) pmaxX = x;
+                    if (y > pmaxY) pmaxY = y;
+                }
+            }
+            const piecesCenterX = (pminX + pmaxX) / 2;
+            const piecesCenterY = (pminY + pmaxY) / 2;
+
+            // right area screen center (screen coordinates)
+            const rightAreaLeft = leftAreaW;
+            const rightAreaW = (size.width || 0) - rightAreaLeft;
+            const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
+            const rightCenterScreenY = centerY;
+
+            // desired display size inside right area = 60% of that area's width/height
+            const desiredByHeight = (size.height || 0) * 0.6;
+            const desiredByWidth = rightAreaW * 0.6;
+            const targetDisplay = Math.max(desiredByHeight, desiredByWidth);
+
+            const bboxW = Math.max(1, pmaxX - pminX);
+            const bboxH = Math.max(1, pmaxY - pminY);
+
+            const scaleForW = targetDisplay / bboxW;
+            const scaleForH = targetDisplay / bboxH;
+            const chosenScalePieces = Math.min(scaleForW, scaleForH);
+            const finalScalePieces = Math.max(0.0001, chosenScalePieces * 0.95);
+
+            // set stage transform so that pieces bbox center maps to right-area center
+            stageScale = finalScalePieces;
+            stageX = rightCenterScreenX - piecesCenterX * stageScale;
+            stageY = rightCenterScreenY - piecesCenterY * stageScale;
+
+            // Use helper to position pieces using the computed stage transform
+            try {
+                if (drafts[selectedProblem]) {
+                    setPieces(drafts[selectedProblem]);
+                } else {
+                    const placed = placePiecesInRightArea(
+                        originPieces,
+                        {
+                            width: size.width || 0,
+                            height: size.height || 0,
+                        },
+                        { x: stageX, y: stageY, scale: stageScale },
+                    );
+                    setPieces(placed);
+                }
+            } catch {
+                // fallback: manual offset
+                const desiredWorldCenterX = (rightCenterScreenX - stageX) / stageScale;
+                const desiredWorldCenterY = (rightCenterScreenY - stageY) / stageScale;
+                const offsetX = desiredWorldCenterX - piecesCenterX;
+                const offsetY = desiredWorldCenterY - piecesCenterY;
+                const piecesForRight = originPieces.map((p) => ({
+                    ...p,
+                    x: (p.x || 0) + offsetX,
+                    y: (p.y || 0) + offsetY,
+                }));
+                setPieces(piecesForRight);
+            }
+        } else {
+            // has targets: keep existing behavior (center originPieces into right area using
+            // the stage transform computed for the left-area targets)
+            try {
+                if (drafts[selectedProblem]) {
+                    setPieces(drafts[selectedProblem]);
+                } else {
+                    const placed = placePiecesInRightArea(
+                        originPieces,
+                        {
+                            width: size.width || 0,
+                            height: size.height || 0,
+                        },
+                        { x: stageX, y: stageY, scale: stageScale },
+                    );
+                    setPieces(placed);
+                }
+            } catch {
+                // fallback manual offset based on previously computed stageX/stageScale
                 // compute bbox / center of origin pieces in world coordinates
                 let pminX = Infinity;
                 let pminY = Infinity;
@@ -495,47 +585,25 @@ export default function CanvasStage() {
                 }
                 const piecesCenterX = (pminX + pmaxX) / 2;
                 const piecesCenterY = (pminY + pmaxY) / 2;
-
-                // right area screen center (screen coordinates)
                 const rightAreaLeft = leftAreaW;
                 const rightAreaW = (size.width || 0) - rightAreaLeft;
                 const rightCenterScreenX = rightAreaLeft + rightAreaW / 2;
                 const rightCenterScreenY = centerY;
-
-                // map screen center back to world coordinates using stage transform
-                const desiredWorldCenterX = (rightCenterScreenX - stageX) / finalScale;
-                const desiredWorldCenterY = (rightCenterScreenY - stageY) / finalScale;
-
+                const desiredWorldCenterX = (rightCenterScreenX - stageX) / stageScale;
+                const desiredWorldCenterY = (rightCenterScreenY - stageY) / stageScale;
                 const offsetX = desiredWorldCenterX - piecesCenterX;
                 const offsetY = desiredWorldCenterY - piecesCenterY;
-
-                // prefer using helper that centralizes placement logic
-                try {
-                    const placed = placePiecesInRightArea(
-                        originPieces,
-                        {
-                            width: size.width || 0,
-                            height: size.height || 0,
-                        },
-                        { x: stageX, y: stageY, scale: finalScale },
-                    );
-                    setPieces(placed);
-                } catch {
-                    const piecesForRight = originPieces.map((p) => ({
-                        ...p,
-                        x: (p.x || 0) + offsetX,
-                        y: (p.y || 0) + offsetY,
-                    }));
-                    setPieces(piecesForRight);
-                }
+                const piecesForRight = originPieces.map((p) => ({
+                    ...p,
+                    x: (p.x || 0) + offsetX,
+                    y: (p.y || 0) + offsetY,
+                }));
+                setPieces(piecesForRight);
             }
-        } catch {
-            // defensive: if store access fails for some reason, fall back to setting pieces
-            const piecesForRight = originPieces.map((p) => p);
-            setPieces(piecesForRight);
         }
 
-        stage.scale({ x: finalScale, y: finalScale });
+        // finally apply computed stage transform
+        stage.scale({ x: stageScale, y: stageScale });
         stage.position({ x: stageX, y: stageY });
         stage.batchDraw();
     }, [targetPieces, size]);
