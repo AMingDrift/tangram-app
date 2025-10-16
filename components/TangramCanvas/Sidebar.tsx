@@ -108,11 +108,17 @@ export default function Sidebar() {
     // 页面首次加载时自动选中第一项（problems 可能异步获取，且只执行一次）
     const hasAutoSelectedRef = useRef(false);
     useEffect(() => {
-        if (!hasAutoSelectedRef.current && problems.length > 0 && selectedProblem === '') {
+        if (
+            !hasAutoSelectedRef.current &&
+            problems.length > 0 &&
+            selectedProblem === '' &&
+            !creating
+        ) {
             setSelectedProblem(problems[0].id);
             hasAutoSelectedRef.current = true;
         }
-    }, [problems, selectedProblem, setSelectedProblem]);
+    }, [problems, selectedProblem, setSelectedProblem, creating]);
+
     const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
     const [saveDialogTitleInput, setSaveDialogTitleInput] = useState('');
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
