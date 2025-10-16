@@ -438,9 +438,40 @@ export default function Sidebar() {
                         <Dialog open={isAnswerDialogOpen} onOpenChange={setIsAnswerDialogOpen}>
                             <DialogContent
                                 className="sm:max-w-[40rem] lg:max-w-[60vw]"
-                                onPointerDownOutside={(e) => {
-                                    // Prevent closing the answers dialog when clicking outside
-                                    e.preventDefault();
+                                onPointerDownOutside={(e: any) => {
+                                    try {
+                                        // Try to detect clicks coming from the sonner toast portal.
+                                        // The Toaster creates a container with id 'toast-root' and
+                                        // the Sonner root uses class 'toaster'. If the event's
+                                        // composedPath contains either, assume the click was on
+                                        // the toast (eg. the undo button) and prevent the
+                                        // dialog from closing.
+                                        const path: any[] =
+                                            typeof e.composedPath === 'function'
+                                                ? e.composedPath()
+                                                : e.path || [];
+
+                                        for (const node of path) {
+                                            if (!node) continue;
+                                            if (node instanceof Element) {
+                                                const el = node as Element;
+                                                if (el.id === 'toast-root') {
+                                                    e.preventDefault();
+                                                    return;
+                                                }
+                                                if (
+                                                    el.classList &&
+                                                    el.classList.contains('toaster')
+                                                ) {
+                                                    e.preventDefault();
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    } catch {
+                                        // on any error, do nothing and allow normal behavior
+                                        // (closing on outside click)
+                                    }
                                 }}
                             >
                                 <DialogHeader>
