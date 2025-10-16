@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/shallow';
 
+import { Confetti } from '@/components/ui/confetti';
 import { useTangramStore } from '@/stores/tangramStore';
 
 import CanvasStage from './CanvasStage';
@@ -31,14 +32,41 @@ export const getSidebarWidthPx = () => {
     return Number.isFinite(n) ? n : 320;
 };
 export default function TangramCanvasApp() {
-    const { problemTargets, setSize, setTargetPieces, selectedProblem } = useTangramStore(
-        useShallow((state) => ({
-            problemTargets: state.problemTargets,
-            setSize: state.setSize,
-            setTargetPieces: state.setTargetPieces,
-            selectedProblem: state.selectedProblem,
-        })),
-    );
+    const { problemTargets, setSize, setTargetPieces, selectedProblem, coverage, size } =
+        useTangramStore(
+            useShallow((state) => ({
+                problemTargets: state.problemTargets,
+                setSize: state.setSize,
+                setTargetPieces: state.setTargetPieces,
+                selectedProblem: state.selectedProblem,
+                coverage: state.coverage,
+                size: state.size,
+            })),
+        );
+
+    // confetti ref to call .fire()
+    const confettiRef = useRef<any>(null);
+    const prevCoverageRef = useRef<number>(0);
+
+    // watch coverage and trigger confetti when crossing >98 from <=98
+    useEffect(() => {
+        const prev = prevCoverageRef.current ?? 0;
+        const cur = coverage ?? 0;
+        if (prev <= 98 && cur > 98) {
+            try {
+                const radio = size.width / 1920;
+                confettiRef.current?.fire?.({
+                    startVelocity: 45 * radio,
+                    spread: 45 * radio,
+                    gravity: radio,
+                    scalar: radio,
+                });
+            } catch {
+                // ignore confetti errors
+            }
+        }
+        prevCoverageRef.current = cur;
+    }, [coverage]);
 
     useEffect(() => {
         const handleResize = () => {
@@ -76,6 +104,8 @@ export default function TangramCanvasApp() {
         <div className="relative flex h-screen w-full">
             <Sidebar />
             <main className="relative flex-1">
+                {/* Confetti canvas positioned centered under the stage */}
+                <Confetti ref={confettiRef} className="absolute top-0 left-0 z-0 size-full" />
                 <CanvasStage />
             </main>
         </div>

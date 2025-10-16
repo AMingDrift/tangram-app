@@ -806,10 +806,9 @@ export default function CanvasStage() {
                                                         (targetPos.y - startPos.y) * mid;
                                                     const ov = overlapAt(mx, my);
                                                     if (ov > 0) {
-                                                        // mid is still overlapping, move hi to mid (we want closest non-overlap to target)
+                                                        // overlapping, reduce move
                                                         hi = mid;
                                                     } else {
-                                                        // no overlap here, move lo to mid to get closer to target
                                                         lo = mid;
                                                     }
                                                 }
@@ -818,7 +817,6 @@ export default function CanvasStage() {
                                                     x: startPos.x + (targetPos.x - startPos.x) * t,
                                                     y: startPos.y + (targetPos.y - startPos.y) * t,
                                                 };
-
                                                 // --- 接触边检测与沿边滑动逻辑 ---
                                                 try {
                                                     // transformed points at foundPos
@@ -1033,17 +1031,22 @@ export default function CanvasStage() {
                                             rotation: snap.rotation,
                                             placed: true,
                                         });
-                                        const pct = computeCoverage(pieces, targetPieces, 200, 160);
-                                        setCoverage(pct);
                                     } else {
                                         updatePiece(p.id, {
                                             placed: false,
                                             x: e.target.x(),
                                             y: e.target.y(),
                                         });
-                                        const pct = computeCoverage(pieces, targetPieces, 200, 160);
-                                        setCoverage(pct);
                                     }
+                                    const st = useTangramStore.getState();
+                                    const curPieces = st.pieces || [];
+                                    const rawTargets = st.getDisplayTargetPieces() || [];
+                                    const curTargets = rawTargets.map((t) => ({
+                                        id: Number(t.id) || -1,
+                                        points: t.points,
+                                    }));
+                                    const pct = computeCoverage(curPieces, curTargets, 200, 160);
+                                    setCoverage(pct);
                                 }}
                             >
                                 <Line points={p.points} fill={p.color} closed shadowBlur={6} />
@@ -1060,15 +1063,38 @@ export default function CanvasStage() {
                                     onClick={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;
                                         updatePiece(p.id, { rotation: newRot });
-                                        const targets = displayTargetPiecesLogic;
-                                        const pct = computeCoverage(pieces, targets, 200, 160);
+                                        // read latest from store
+                                        const st = useTangramStore.getState();
+                                        const curPieces = st.pieces || [];
+                                        const rawTargets = st.getDisplayTargetPieces() || [];
+                                        const curTargets = rawTargets.map((t) => ({
+                                            id: Number(t.id) || -1,
+                                            points: t.points,
+                                        }));
+                                        const pct = computeCoverage(
+                                            curPieces,
+                                            curTargets,
+                                            200,
+                                            160,
+                                        );
                                         setCoverage(pct);
                                     }}
                                     onTap={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;
                                         updatePiece(p.id, { rotation: newRot });
-                                        const targets = displayTargetPiecesLogic;
-                                        const pct = computeCoverage(pieces, targets, 200, 160);
+                                        const st = useTangramStore.getState();
+                                        const curPieces = st.pieces || [];
+                                        const rawTargets = st.getDisplayTargetPieces() || [];
+                                        const curTargets = rawTargets.map((t) => ({
+                                            id: Number(t.id) || -1,
+                                            points: t.points,
+                                        }));
+                                        const pct = computeCoverage(
+                                            curPieces,
+                                            curTargets,
+                                            200,
+                                            160,
+                                        );
                                         setCoverage(pct);
                                     }}
                                 />
