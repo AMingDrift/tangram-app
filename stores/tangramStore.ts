@@ -7,6 +7,7 @@ import type { Piece } from '@/lib/tangramUtils';
 
 import {
     computeCoverage,
+    computeDisplayTargetPieces,
     computeStageTransformForPiecesRightArea,
     computeStageTransformForTargets,
     defaultTangram,
@@ -46,6 +47,9 @@ interface TangramState {
     size: { width: number; height: number };
     pieces: Piece[];
     targetPieces: { id: number; points: number[] }[];
+    // derived display polygons are computed per-problem; getter available below
+    // per-problem mapping of computed display target polygons
+    problemDisplayTargets: Record<string, { id: string; points: number[] }[]>;
     problems: Problem[];
     // transient drafts for each problem id (not persisted)
     drafts: Record<string, Piece[]>;
@@ -63,6 +67,9 @@ interface TangramState {
     setSize: (s: { width: number; height: number }) => void;
     setPieces: (p: Piece[]) => void;
     setTargetPieces: (t: { id: number; points: number[] }[]) => void;
+    // getter for display pieces for the currently selected problem
+    getDisplayTargetPieces: () => { id: string; points: number[] }[];
+    setProblemDisplayTargets: (map: Record<string, { id: string; points: number[] }[]>) => void;
     updatePiece: (id: number, patch: Partial<Piece>) => void;
     setProblems: (p: Problem[]) => void;
     setDraftForProblem: (id: string, pieces: Piece[] | undefined) => void;
@@ -96,6 +103,7 @@ export const useTangramStore = create<TangramState>()(
             (set, get) => ({
                 size: { width: 0, height: 0 },
                 pieces: [],
+                problemDisplayTargets: {},
                 drafts: {},
                 // targetPieces stores pixel-space target polygons computed from problemTargets
                 targetPieces: [],
@@ -132,14 +140,41 @@ export const useTangramStore = create<TangramState>()(
                         return { drafts };
                     }),
                 setTargetPieces: (t) => set({ targetPieces: t }),
+                // getter returns merged display polygons for currently selected problem
+                getDisplayTargetPieces: () => {
+                    const st = get();
+                    const pd = st.problemDisplayTargets || {};
+                    const sel = st.selectedProblem || '';
+                    return pd[sel] && pd[sel].length > 0 ? pd[sel] : [];
+                },
+                setProblemDisplayTargets: (map) => set({ problemDisplayTargets: map }),
                 updatePiece: (id, patch) =>
                     set((state) => ({
                         pieces: state.pieces.map((x) => (x.id === id ? { ...x, ...patch } : x)),
                     })),
                 setProblems: (p) => set({ problems: p }),
-                setProblemTargets: (map) => set({ problemTargets: map }),
+                setProblemTargets: (map) =>
+                    set((_state) => {
+                        // compute displayTargetPieces for all problems and store them in problemDisplayTargets
+                        const pd: Record<string, { id: string; points: number[] }[]> = {};
+                        try {
+                            for (const k of Object.keys(map || {})) {
+                                const arr = map[k] || [];
+                                pd[k] = computeDisplayTargetPieces(arr);
+                            }
+                        } catch {
+                            // ignore per-problem compute failures
+                        }
+                        return {
+                            problemTargets: map,
+                            problemDisplayTargets: pd,
+                        };
+                    }),
                 setThumbnails: (map) => set({ thumbnails: map }),
-                setSelectedProblem: (id) => set({ selectedProblem: id }),
+                setSelectedProblem: (id) =>
+                    set((_state) => {
+                        return { selectedProblem: id };
+                    }),
                 setCreating: (b) => set({ creating: b }),
                 setCoverage: (n) => set({ coverage: n }),
                 setSnapEnabled: (b) => set({ snapEnabled: b }),
@@ -297,6 +332,15 @@ export const useTangramStore = create<TangramState>()(
                             initialStageTransform,
                         );
 
+                        // compute displayTargetPieces for all problems and pick for the first selected
+                        const pd: Record<string, { id: string; points: number[] }[]> = {};
+                        try {
+                            for (const k of Object.keys(newProblemTargets)) {
+                                pd[k] = computeDisplayTargetPieces(newProblemTargets[k] || []);
+                            }
+                        } catch {
+                            // ignore
+                        }
                         return {
                             drafts: {},
                             problems: newProblems,
@@ -304,6 +348,7 @@ export const useTangramStore = create<TangramState>()(
                             thumbnails: newThumbnails,
                             selectedProblem: firstSelected,
                             pieces: initialPieces,
+                            problemDisplayTargets: pd,
                         };
                     }),
                 exportProblemsData: () => {
@@ -338,12 +383,24 @@ export const useTangramStore = create<TangramState>()(
                         points: t.points,
                     }));
                     const url = generateThumbnail(pixelForThumb, 160, 120);
-                    set((state) => ({
+                    set((_state) => ({
                         thumbnails: {
-                            ...state.thumbnails,
+                            ..._state.thumbnails,
                             [newId]: url,
                         },
                     }));
+                    // compute displayTargetPieces for this new problem and store in per-problem map
+                    try {
+                        const dps = computeDisplayTargetPieces(targetsGrid);
+                        set((s) => {
+                            const pd = { ...(s.problemDisplayTargets || {}) };
+                            pd[newId] = dps;
+                            // no top-level displayTargetPieces field any more; just update per-problem map
+                            return { problemDisplayTargets: pd };
+                        });
+                    } catch {
+                        // ignore
+                    }
                     return newId;
                 },
                 deleteProblemById: (id) =>
@@ -368,6 +425,8 @@ export const useTangramStore = create<TangramState>()(
                         delete newThumbnails[id];
                         const newDrafts = { ...(state.drafts || {}) };
                         delete newDrafts[id];
+                        const newProblemDisplay = { ...(state.problemDisplayTargets || {}) };
+                        delete newProblemDisplay[id];
 
                         // Determine pieces to show for the newly-selected problem.
                         // Prefer restoring any transient draft; otherwise place a default tangram
@@ -417,6 +476,7 @@ export const useTangramStore = create<TangramState>()(
                             selectedProblem: newSelected,
                             pieces: newPieces,
                             coverage: pct,
+                            problemDisplayTargets: newProblemDisplay,
                         };
                     }),
                 editProblemTitle: (id, title) =>

@@ -10,6 +10,7 @@ import {
     calculateOverlapArea,
     checkCollisionsForPiece,
     computeCoverage,
+    computeDisplayTargetPieces,
     defaultTangram,
     DESIRED_RADIO,
     findSnapForPiece,
@@ -28,7 +29,9 @@ export default function CanvasStage() {
         bringPieceToTop,
         setCoverage,
         targetPieces,
-        selectedProblemTargets,
+        problemDisplayTargets,
+        problemTargets,
+        setProblemDisplayTargets,
         drafts,
         selectedProblem,
     } = useTangramStore(
@@ -40,7 +43,9 @@ export default function CanvasStage() {
             bringPieceToTop: state.bringPieceToTop,
             setCoverage: state.setCoverage,
             targetPieces: state.targetPieces,
-            selectedProblemTargets: state.problemTargets[state.selectedProblem] ?? null,
+            problemDisplayTargets: state.problemDisplayTargets,
+            problemTargets: state.problemTargets,
+            setProblemDisplayTargets: state.setProblemDisplayTargets,
             drafts: state.drafts,
             selectedProblem: state.selectedProblem,
         })),
@@ -76,6 +81,41 @@ export default function CanvasStage() {
     })();
 
     // offsetTarget contains real pixel coordinates for the target shapes (do not transform them here)
+    const displayTargetPiecesRender: { id: string; points: number[] }[] =
+        (problemDisplayTargets && problemDisplayTargets[selectedProblem]) ||
+        (targetPieces && targetPieces.length > 0
+            ? targetPieces.map((t) => ({ id: String(t.id), points: t.points }))
+            : []);
+
+    // logic form uses numeric ids required by geometry helpers
+    const getDisplayTargetPiecesLogic = (): { id: number; points: number[] }[] => {
+        if (problemDisplayTargets && problemDisplayTargets[selectedProblem]) {
+            return (problemDisplayTargets[selectedProblem] || []).map((t) => ({
+                id: Number(t.id) || -1,
+                points: t.points,
+            }));
+        }
+        return (targetPieces || []).map((t) => ({ id: t.id as number, points: t.points }));
+    };
+    const displayTargetPiecesLogic = getDisplayTargetPiecesLogic();
+
+    // 如果当前选中题目的合并显示多边形尚未计算，则自动计算并写回 store
+    useEffect(() => {
+        try {
+            if (!selectedProblem) return;
+            const pd = problemDisplayTargets || {};
+            // If we've already computed and stored an entry for this problem (even an empty array), don't recompute.
+            if (Object.prototype.hasOwnProperty.call(pd, selectedProblem)) return;
+            // compute from raw problemTargets if available
+            const raw = (problemTargets && problemTargets[selectedProblem]) || [];
+            const computed = computeDisplayTargetPieces(raw);
+            const newPd = { ...(problemDisplayTargets || {}) };
+            newPd[selectedProblem] = computed;
+            setProblemDisplayTargets(newPd);
+        } catch {
+            // ignore compute failures
+        }
+    }, [selectedProblem, problemDisplayTargets, problemTargets, setProblemDisplayTargets]);
 
     // 吸边常量（以 px 为基准，但随 root font-size 缩放）
     const SNAP_DIST = 20; // 可调整
@@ -413,7 +453,12 @@ export default function CanvasStage() {
     useEffect(() => {
         const stage = stageRef.current;
         if (!stage) return;
-        const tp = targetPieces || [];
+        // prefer merged display shapes for bounding box / fit calculations when available
+        // use any-typing here because displayTargetPiecesRender uses string ids while targetPieces uses numbers
+        const tp: any =
+            displayTargetPiecesRender && displayTargetPiecesRender.length > 0
+                ? displayTargetPiecesRender
+                : targetPieces || [];
         // allow empty targetPieces: we'll still initialize the stage and place default tangram
         const hasTargets = Array.isArray(tp) && tp.length > 0;
         // compute bbox in pixel coordinates. If no targets, fall back to a neutral bbox around origin.
@@ -607,7 +652,7 @@ export default function CanvasStage() {
         stage.scale({ x: stageScale, y: stageScale });
         stage.position({ x: stageX, y: stageY });
         stage.batchDraw();
-    }, [targetPieces, size]);
+    }, [targetPieces, problemDisplayTargets, selectedProblem, size]);
 
     return (
         <>
@@ -627,8 +672,11 @@ export default function CanvasStage() {
                     onMouseLeave={handleMouseUp}
                 >
                     <Layer>
-                        {/* Render targetPieces directly (they store real pixel positions) */}
-                        {targetPieces.map((p: any) => (
+                        {/* Render merged displayTargetPieces when available, otherwise raw targetPieces */}
+                        {(displayTargetPiecesRender && displayTargetPiecesRender.length > 0
+                            ? displayTargetPiecesRender
+                            : targetPieces
+                        ).map((p: any) => (
                             <Line key={p.id} points={p.points} fill="black" closed opacity={0.25} />
                         ))}
 
@@ -976,7 +1024,7 @@ export default function CanvasStage() {
                                         x: e.target.x(),
                                         y: e.target.y(),
                                     };
-                                    const targets = (selectedProblemTargets as any) ?? [];
+                                    const targets = displayTargetPiecesLogic;
                                     const snap = findSnapForPiece(pieceAfter, targets);
                                     if (snap) {
                                         updatePiece(p.id, {
@@ -1012,14 +1060,14 @@ export default function CanvasStage() {
                                     onClick={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;
                                         updatePiece(p.id, { rotation: newRot });
-                                        const targets = (selectedProblemTargets as any) ?? [];
+                                        const targets = displayTargetPiecesLogic;
                                         const pct = computeCoverage(pieces, targets, 200, 160);
                                         setCoverage(pct);
                                     }}
                                     onTap={() => {
                                         const newRot = ((p.rotation || 0) + 45) % 360;
                                         updatePiece(p.id, { rotation: newRot });
-                                        const targets = (selectedProblemTargets as any) ?? [];
+                                        const targets = displayTargetPiecesLogic;
                                         const pct = computeCoverage(pieces, targets, 200, 160);
                                         setCoverage(pct);
                                     }}

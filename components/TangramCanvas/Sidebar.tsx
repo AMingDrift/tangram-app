@@ -64,6 +64,7 @@ export default function Sidebar() {
         selectedProblem,
         startCreation,
         setPieces,
+        coverage,
         setCoverage,
         setSelectedProblem,
         cancelCreation,
@@ -90,6 +91,7 @@ export default function Sidebar() {
             startCreation: state.startCreation,
             setSelectedProblem: state.setSelectedProblem,
             setPieces: state.setPieces,
+            coverage: state.coverage,
             setCoverage: state.setCoverage,
             cancelCreation: state.cancelCreation,
             saveCreation: state.saveCreation,
@@ -371,25 +373,6 @@ export default function Sidebar() {
                                     className="cursor-pointer"
                                     variant="outline"
                                     size="icon"
-                                    aria-label="Answer List"
-                                    onClick={() => {
-                                        setIsAnswerDialogOpen(true);
-                                    }}
-                                >
-                                    <NotepadText size={Math.round(iconPx)} />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                                <p>答案列表</p>
-                            </TooltipContent>
-                        </Tooltip>
-
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    className="cursor-pointer"
-                                    variant="outline"
-                                    size="icon"
                                     aria-label="Save Answer"
                                     onClick={() => {
                                         try {
@@ -431,6 +414,25 @@ export default function Sidebar() {
                             </TooltipTrigger>
                             <TooltipContent>
                                 <p>保存答案</p>
+                            </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    className="cursor-pointer"
+                                    variant="outline"
+                                    size="icon"
+                                    aria-label="Answer List"
+                                    onClick={() => {
+                                        setIsAnswerDialogOpen(true);
+                                    }}
+                                >
+                                    <NotepadText size={Math.round(iconPx)} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>答案列表</p>
                             </TooltipContent>
                         </Tooltip>
 
@@ -700,6 +702,7 @@ export default function Sidebar() {
             </div>
 
             <h3 className="my-3 text-[1.125rem] font-medium">题目列表</h3>
+            <h3 className="my-3 text-[1.125rem] font-medium">{coverage}</h3>
             <div className="grid gap-2">
                 {problems.map((pb: { id: string; title: string }) => (
                     // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions

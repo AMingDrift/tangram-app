@@ -1,3 +1,4 @@
+import PolyBool from 'polybooljs';
 import SAT from 'sat';
 
 // 工具函数抽取自原始 TangramCanvas.tsx
@@ -754,4 +755,174 @@ export const defaultTangram = (): Piece[] => {
     }));
 
     return allPoints;
+};
+
+// Compute displayTargetPieces by clustering nearby/ touching polygons within a tolerance (px)
+// and merging each cluster into a single representative polygon. For merging we compute
+// the convex hull of all boundary points in the cluster. This is a pragmatic approach that
+// treats closely-fitting pieces as a single displayed polygon while avoiding heavy
+// polygon-union implementations. Returns array of { id: string, points: number[] }
+export const computeDisplayTargetPieces = (
+    targetPolys: { id: number; points: number[] }[] | undefined,
+    tolerance = 5,
+) => {
+    const tp = targetPolys || [];
+    if (tp.length === 0) return [] as { id: string; points: number[] }[];
+
+    // helper: point-segment distance
+    const pointSegDist = (
+        px: number,
+        py: number,
+        ax: number,
+        ay: number,
+        bx: number,
+        by: number,
+    ) => {
+        const vx = bx - ax;
+        const vy = by - ay;
+        const wx = px - ax;
+        const wy = py - ay;
+        const c1 = vx * wx + vy * wy;
+        const c2 = vx * vx + vy * vy;
+        let t = 0;
+        if (c2 > 1e-12) t = Math.max(0, Math.min(1, c1 / c2));
+        const cx = ax + vx * t;
+        const cy = ay + vy * t;
+        const dx = px - cx;
+        const dy = py - cy;
+        return Math.hypot(dx, dy);
+    };
+
+    // minimal distance between two polygons (vertex->edge and vertex->vertex approx)
+    const polyMinDist = (a: number[], b: number[]) => {
+        let best = Infinity;
+        for (let i = 0; i < a.length; i += 2) {
+            const px = a[i];
+            const py = a[i + 1];
+            for (let j = 0; j < b.length; j += 2) {
+                // vertex to vertex
+                const vx = b[j];
+                const vy = b[j + 1];
+                const dvv = Math.hypot(px - vx, py - vy);
+                if (dvv < best) best = dvv;
+            }
+            // vertex to edges
+            for (let j = 0; j < b.length; j += 2) {
+                const ax = b[j];
+                const ay = b[j + 1];
+                const bx2 = b[(j + 2) % b.length];
+                const by2 = b[(j + 3) % b.length];
+                const d = pointSegDist(px, py, ax, ay, bx2, by2);
+                if (d < best) best = d;
+            }
+        }
+        // also check other direction vertex->edge
+        for (let i = 0; i < b.length; i += 2) {
+            const px = b[i];
+            const py = b[i + 1];
+            for (let j = 0; j < a.length; j += 2) {
+                const ax = a[j];
+                const ay = a[j + 1];
+                const bx2 = a[(j + 2) % a.length];
+                const by2 = a[(j + 3) % a.length];
+                const d = pointSegDist(px, py, ax, ay, bx2, by2);
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    };
+
+    // Build adjacency graph where two polys are connected if they overlap or are within tolerance
+    const n = tp.length;
+    const adj: number[][] = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            const a = tp[i].points;
+            const b = tp[j].points;
+            let connected = false;
+            try {
+                // overlap check (any intersection)
+                if (polygonIntersectionSAT(a, b)) connected = true;
+            } catch {
+                // ignore SAT failures
+            }
+            if (!connected) {
+                const d = polyMinDist(a, b);
+                if (d <= tolerance) connected = true;
+            }
+            if (connected) {
+                adj[i].push(j);
+                adj[j].push(i);
+            }
+        }
+    }
+
+    // find connected components
+    const visited = Array.from({ length: n }, () => false);
+    const groups: number[][] = [];
+    for (let i = 0; i < n; i++) {
+        if (visited[i]) continue;
+        const stack = [i];
+        const comp: number[] = [];
+        visited[i] = true;
+        while (stack.length) {
+            const u = stack.pop()!;
+            comp.push(u);
+            for (const v of adj[u]) {
+                if (!visited[v]) {
+                    visited[v] = true;
+                    stack.push(v);
+                }
+            }
+        }
+        groups.push(comp);
+    }
+
+    // Merge polygons within each connected component using polybooljs to preserve concavities.
+    // polybooljs uses format: { regions: Array<Array<[x,y]>>, inverted: boolean }
+    const toPoly = (pts: number[]) => {
+        const region: [number, number][] = [];
+        for (let i = 0; i < pts.length; i += 2) region.push([pts[i], pts[i + 1]]);
+        return { regions: [region], inverted: false } as any;
+    };
+
+    const fromPoly = (poly: any) => {
+        const out: { id: string; points: number[] }[] = [];
+        if (!poly || !Array.isArray(poly.regions)) return out;
+        for (let r = 0; r < poly.regions.length; r++) {
+            const region = poly.regions[r] as [number, number][];
+            if (!region || region.length === 0) continue;
+            const pts: number[] = [];
+            for (const v of region) pts.push(v[0], v[1]);
+            out.push({ id: String(r), points: pts });
+        }
+        return out;
+    };
+
+    const result: { id: string; points: number[] }[] = [];
+    for (const comp of groups) {
+        // union all member polygons using polybooljs
+        let accum: any | null = null;
+        const ids: number[] = [];
+        for (const idx of comp) {
+            ids.push(tp[idx].id);
+            const poly = toPoly(tp[idx].points);
+            if (!accum) accum = poly;
+            else accum = PolyBool.union(accum, poly);
+        }
+
+        if (!accum) continue;
+
+        // convert union result into flattened rings; poly.regions is an array of rings
+        const merged = fromPoly(accum);
+        // merged may contain multiple regions (holes handled as separate regions by polybooljs)
+        for (let k = 0; k < merged.length; k++) {
+            const item = merged[k];
+            // construct id from component ids and index
+            const outId = ids.join('-') + (merged.length > 1 ? `-${k}` : '');
+            result.push({ id: outId, points: item.points });
+        }
+    }
+
+    return result;
 };
