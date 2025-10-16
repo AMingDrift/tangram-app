@@ -276,105 +276,9 @@ export const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points
     const pieceEdges = getEdgesFromPoints(pieceWorldPts);
 
     const targetEdges: Edge[] = [];
-    // For each target polygon, add its edges plus any extended-in-polygon segments
-    // so that long convex edges (with no neighbouring short edges) can still match
-    const pointInPolygon = (x: number, y: number, polyPts: number[]) => {
-        let inside = false;
-        for (let i = 0, j = polyPts.length - 2; i < polyPts.length; i += 2) {
-            const xi = polyPts[i];
-            const yi = polyPts[i + 1];
-            const xj = polyPts[j];
-            const yj = polyPts[j + 1];
-            const intersect =
-                yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 0.0) + xi;
-            if (intersect) inside = !inside;
-            j = i;
-        }
-        return inside;
-    };
-
-    const lineSegIntersection = (
-        ax: number,
-        ay: number,
-        bx: number,
-        by: number,
-        cx: number,
-        cy: number,
-        dx: number,
-        dy: number,
-    ) => {
-        const vx = bx - ax;
-        const vy = by - ay;
-        const wx = dx - cx;
-        const wy = dy - cy;
-        const denom = vx * wy - vy * wx;
-        if (Math.abs(denom) < 1e-9) return null; // parallel
-        const t = ((cx - ax) * wy - (cy - ay) * wx) / denom; // param along AB
-        const u = ((cx - ax) * vy - (cy - ay) * vx) / denom; // param along CD
-        if (u < -1e-9 || u > 1 + 1e-9) return null; // intersection not on segment CD
-        return { x: ax + t * vx, y: ay + t * vy, t };
-    };
-
     for (const t of targetPolys) {
-        // push native polygon edges
         const edges = getEdgesFromPoints(t.points);
         for (const e of edges) targetEdges.push(e);
-
-        // For each edge, compute intersections of the infinite line with polygon edges
-        // and build intervals that lie inside the polygon.
-        for (const e of edges) {
-            const ax = e.ax;
-            const ay = e.ay;
-            const bx = e.bx;
-            const by = e.by;
-            const vx = bx - ax;
-            const vy = by - ay;
-            const len = Math.hypot(vx, vy);
-            if (len < 1e-9) continue;
-
-            // collect t parameters along AB (where A + t*(B-A)) for intersections
-            const ts: number[] = [0, 1];
-            for (let i = 0; i < t.points.length; i += 2) {
-                const cx = t.points[i];
-                const cy = t.points[i + 1];
-                const dx = t.points[(i + 2) % t.points.length];
-                const dy = t.points[(i + 3) % t.points.length];
-                const inter = lineSegIntersection(ax, ay, bx, by, cx, cy, dx, dy);
-                if (inter) ts.push(inter.t);
-            }
-
-            // sort unique
-            const uniq = Array.from(new Set(ts.map((v) => Math.round(v * 1e6) / 1e6))).sort(
-                (a, b) => a - b,
-            );
-            for (let i = 0; i < uniq.length - 1; i++) {
-                const t0 = uniq[i];
-                const t1 = uniq[i + 1];
-                const midT = (t0 + t1) / 2;
-                const mx = ax + midT * vx;
-                const my = ay + midT * vy;
-                if (pointInPolygon(mx, my, t.points)) {
-                    // interval [t0,t1] lies (partially) inside polygon -> create candidate segment
-                    const sx = ax + t0 * vx;
-                    const sy = ay + t0 * vy;
-                    const ex = ax + t1 * vx;
-                    const ey = ay + t1 * vy;
-                    const segLen = Math.hypot(ex - sx, ey - sy);
-                    if (segLen < 1e-6) continue;
-                    const segAngle = (Math.atan2(ey - sy, ex - sx) * 180) / Math.PI;
-                    targetEdges.push({
-                        ax: sx,
-                        ay: sy,
-                        bx: ex,
-                        by: ey,
-                        length: segLen,
-                        angle: segAngle,
-                        midx: (sx + ex) / 2,
-                        midy: (sy + ey) / 2,
-                    });
-                }
-            }
-        }
     }
 
     // helper: compute overlap length (in px) between segment AB and segment CD when
@@ -405,8 +309,6 @@ export const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points
         return Math.max(0, hi - lo);
     };
 
-    console.log(targetEdges);
-
     for (const pe of pieceEdges) {
         for (const te of targetEdges) {
             const d1 = angleDiff(pe.angle, te.angle);
@@ -424,9 +326,6 @@ export const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points
             for (const re of rotatedEdges) {
                 const md = distance(re.midx, re.midy, te.midx, te.midy);
                 // first try the strict length match
-                // console.log(
-                //     `md=${md}\nMath.abs(re.length - te.length)=${Math.abs(re.length - te.length)}\n`,
-                // );
                 if (md < MAX_MIDPOINT_DIST && Math.abs(re.length - te.length) < MAX_LENGTH_DIFF) {
                     matchedEdge = re;
                     break;
@@ -446,7 +345,6 @@ export const findSnapForPiece = (piece: Piece, targetPolys: { id: number; points
                     const minLen = Math.min(re.length, te.length);
                     const minAccept = Math.min(12, minLen * 0.2); // accept if >=12px or 20% of shorter edge
                     if (overlap >= minAccept) {
-                        console.log('partial overlap', overlap, minLen, minAccept);
                         matchedEdge = re;
                         break;
                     }
