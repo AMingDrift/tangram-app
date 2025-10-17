@@ -3,11 +3,11 @@
 import React, { useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/shallow';
 
+import Sidebar from '@/components/Sidebar';
 import { Confetti } from '@/components/ui/confetti';
 import { useTangramStore } from '@/stores/tangramStore';
 
 import CanvasStage from './CanvasStage';
-import Sidebar from './Sidebar';
 
 // Sidebar width is controlled by CSS variable --sidebar-width; helper reads it as px
 export const getSidebarWidthPx = () => {
