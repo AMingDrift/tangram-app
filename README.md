@@ -9,7 +9,7 @@
 - ➕ 右侧面板显示 7 个拼块（①~⑦），点击编号可顺时针旋转 45°
 - 🧩 拖拽拼块到画布的黑色目标区域完成拼图
 - 📐 碰撞检测与吸附：拼块间支持贴边吸附，靠近目标时会自动吸附
-- 📁 题目管理：支持导入 / 导出 JSON（示例：[artifacts/tangram-problems.json](artifacts/tangram-problems.json)）
+- 📁 题目管理：支持导入 / 导出 JSON（示例：[tangram-problems.json](artifacts/tangram-problems.json)）
 - ✍️ 新建题目：点击"+"新建拖拽拼块后保存；已保存题目的目标以黑色显示
 - 🕘 答案回放：可查看并加载历史答案，恢复每个拼块的位置
 - 🎉 完成提示：全部正确放置后显示烟花特效
