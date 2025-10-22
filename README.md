@@ -1,62 +1,64 @@
-# 七巧板益智游戏 (Tangram Puzzle Game)
+# Tangram Puzzle Game
 
-这是一个为小学数学课堂设计的七巧板互动教学工具（React / Next.js / TypeScript / Konva）。
+English | [中文](README_zh-CN.md)
 
-在线演示: [https://amingdrift.github.io/tangram-app/](https://amingdrift.github.io/tangram-app/)
+This is an interactive tangram teaching tool designed for elementary school mathematics classrooms (React / Next.js / TypeScript / Konva).
 
-## 功能特点
+Online Demo: [https://amingdrift.github.io/tangram-app/](https://amingdrift.github.io/tangram-app/)
 
-- ➕ 右侧面板显示 7 个拼块（①~⑦），点击编号可顺时针旋转 45°
-- 🧩 拖拽拼块到画布的黑色目标区域完成拼图
-- 📐 碰撞检测与吸附：拼块间支持贴边吸附，靠近目标时会自动吸附
-- 📁 题目管理：支持导入 / 导出 JSON（示例：[tangram-problems.json](artifacts/tangram-problems.json)）
-- ✍️ 新建题目：点击"+"新建拖拽拼块后保存；已保存题目的目标以黑色显示
-- 🕘 答案回放：可查看并加载历史答案，恢复每个拼块的位置
-- 🎉 完成提示：全部正确放置后显示烟花特效
-- 💾 数据持久化：题目与答案保存在 IndexedDB，刷新不丢失
+## Features
 
-## 技术栈
+- ➕ Right panel displays 7 puzzle pieces (①~⑦), click the number to rotate 45° clockwise
+- 🧩 Drag pieces to the black target area on the canvas to complete the puzzle
+- 📐 Collision detection and snapping: Pieces support edge-to-edge snapping, automatically attaching when close to targets
+- 📁 Problem management: Supports importing/exporting JSON (example: [tangram-problems.json](artifacts/tangram-problems.json))
+- ✍️ Create new problems: Click "+" to create new draggable pieces and save; saved problem targets are displayed in black
+- 🕘 Answer playback: View and load historical answers to restore each piece's position
+- 🎉 Completion notification: Fireworks effect displayed when all pieces are correctly placed
+- 💾 Data persistence: Problems and answers saved in IndexedDB, preserved after refresh
+
+## Tech Stack
 
 - React 19
 - Next.js 15+
 - TypeScript
 - Tailwind CSS
-- Konva.js (图形库)
+- Konva.js (Graphics library)
 
-## 安装和运行
+## Installation and Running
 
-1. 安装依赖:
+1. Install dependencies:
 
     ```bash
     pnpm install
     ```
 
-2. 启动开发服务器:
+2. Start the development server:
 
     ```bash
     pnpm dev
     ```
 
-3. 在浏览器中打开 <http://localhost:3000> 查看应用
+3. Open <http://localhost:3000> in your browser to view the application
 
-## 教学用途
+## Educational Use
 
-这个工具可以帮助小学生：
+This tool can help elementary students:
 
-- 认识和区分不同的几何形状
-- 理解图形的旋转和变换
-- 培养空间想象能力和逻辑思维
-- 提高对几何图形组合的理解
+- Recognize and distinguish different geometric shapes
+- Understand rotation and transformation of figures
+- Develop spatial imagination and logical thinking
+- Improve understanding of geometric shape combinations
 
-## 文件结构
+## File Structure
 
 ```
 /app
-  page.tsx          # 主应用页面
-  layout.tsx        # 页面布局
-  globals.css       # 全局样式
+  page.tsx          # Main application page
+  layout.tsx        # Page layout
+  globals.css       # Global styles
 /components
-  Sidebar/          # 侧边栏（题目列表、工具栏、对话框）
+  Sidebar/          # Sidebar (problem list, toolbar, dialogs)
     AnswerList.tsx
     index.tsx
     ProblemList.tsx
@@ -67,11 +69,11 @@
       EditProblemDialog.tsx
       ProblemDeleteDialog.tsx
       SaveProblemDialog.tsx
-  TangramCanvas/     # 画布与拼图交互组件
+  TangramCanvas/    # Canvas and puzzle interaction components
     CanvasStage.tsx
     index.tsx
     onDragMoveLogic.md
-  ui/               # 可复用 UI 组件（按钮、对话框、输入等）
+  ui/               # Reusable UI components (buttons, dialogs, inputs, etc.)
     alert-dialog.tsx
     button.tsx
     confetti.tsx
@@ -87,19 +89,19 @@
   tangramIDBStore.ts
   tangramStore.ts
 /artifacts
-  tangram-problems.json   # 示例题库 JSON（上传/下载示例）
+  tangram-problems.json   # Sample problem bank JSON (upload/download example)
 ```
 
-## 自定义
+## Customization
 
-你可以通过修改文件来自定义:
+You can customize by modifying files:
 
-- 七巧板图形的形状和颜色
-- 目标轮廓的形状
-- 旋转角度
-- 吸附逻辑
-- 烟花效果
+- Shape and color of tangram pieces
+- Target outline shape
+- Rotation angle
+- Snapping logic
+- Fireworks effect
 
-## 许可证
+## License
 
 MIT
