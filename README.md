@@ -1,22 +1,27 @@
 # 七巧板益智游戏 (Tangram Puzzle Game)
 
-这是一个专为小学数学教师设计的七巧板互动教学工具，使用 React、Next.js 15+、TypeScript 和 Konva.js 构建。
+这是一个为小学数学课堂设计的七巧板互动教学工具（React / Next.js / TypeScript / Konva）。
+
+在线演示: [https://amingdrift.github.io/tangram-app/](https://amingdrift.github.io/tangram-app/)
 
 ## 功能特点
 
-- 右侧显示七巧板的7个图形，每个图形标有数字①~⑦
-- 点击数字序号可以让对应图形旋转45度
-- 学生可以拖拽数字序号对应的图形到中央画布中
-- 拖拽具有吸附黑色区域的效果
-- 当所有图形都正确放置后，会显示烟花庆祝效果
+- ➕ 右侧面板显示 7 个拼块（①~⑦），点击编号可顺时针旋转 45°
+- 🧩 拖拽拼块到画布的黑色目标区域完成拼图
+- 📐 碰撞检测与吸附：拼块间支持贴边吸附，靠近目标时会自动吸附
+- 📁 题目管理：支持导入 / 导出 JSON（示例：[tangram-problems.json](artifacts\tangram-problems.json)）
+- ✍️ 新建题目：点击"+"新建拖拽拼块后保存；已保存题目的目标以黑色显示
+- 🕘 答案回放：可查看并加载历史答案，恢复每个拼块的位置
+- 🎉 完成提示：全部正确放置后显示烟花特效
+- 💾 数据持久化：题目与答案保存在 IndexedDB，刷新不丢失
 
 ## 技术栈
 
 - React 19
 - Next.js 15+
 - TypeScript
-- Konva.js (用于图形渲染和交互)
-- Tailwind CSS (用于样式设计)
+- Tailwind CSS
+- Konva.js (图形库)
 
 ## 安装和运行
 
@@ -33,14 +38,6 @@
     ```
 
 3. 在浏览器中打开 <http://localhost:3000> 查看应用
-
-## 使用说明
-
-1. 右侧面板显示了七巧板的7个不同形状的图形
-2. 点击图形上的数字编号可以使其顺时针旋转45度
-3. 拖拽图形到左侧画布中的虚线框内完成拼图
-4. 当所有图形都被正确放置时，会有烟花特效显示作为成功提示
-5. 点击"重新开始"按钮可以重置游戏
 
 ## 教学用途
 
@@ -59,7 +56,38 @@
   layout.tsx        # 页面布局
   globals.css       # 全局样式
 /components
-  Fireworks.tsx     # 烟花特效组件
+  Sidebar/          # 侧边栏（题目列表、工具栏、对话框）
+    AnswerList.tsx
+    index.tsx
+    ProblemList.tsx
+    ToolbarButtons.tsx
+    Dialog/
+      AnswerDeleteDialog.tsx
+      AnswerListDialog.tsx
+      EditProblemDialog.tsx
+      ProblemDeleteDialog.tsx
+      SaveProblemDialog.tsx
+  TangramCanvas/     # 画布与拼图交互组件
+    CanvasStage.tsx
+    index.tsx
+    onDragMoveLogic.md
+  ui/               # 可复用 UI 组件（按钮、对话框、输入等）
+    alert-dialog.tsx
+    button.tsx
+    confetti.tsx
+    dialog.tsx
+    input.tsx
+    sonner.tsx
+    tooltip-button.tsx
+    tooltip.tsx
+/lib
+  tangramUtils.ts
+  utils.ts
+/stores
+  tangramIDBStore.ts
+  tangramStore.ts
+/artifacts
+  tangram-problems.json   # 示例题库 JSON（上传/下载示例）
 ```
 
 ## 自定义
@@ -71,15 +99,6 @@
 - 旋转角度
 - 吸附逻辑
 - 烟花效果
-
-## TODO
-
-- [x]   1. 碰撞检测，贴边吸附
-- [x]   2. 做一个空白的白板题目，或者干脆做一个按钮是白板模式
-- [x]   3. window resize时不要重置图形位置，改为适配当前图形大小，让图形居中
-- [x]   4. 自适应大屏模式，用vw,vh单位
-- [x]   5. window resize时，图形中央的Text会随着window resize而改变，需要处理
-- [ ]   6. 做题时图形移动到黑框区域做到贴边吸附
 
 ## 许可证
 
